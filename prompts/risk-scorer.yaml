@@ -1,0 +1,49 @@
+name: risk-scorer
+version: 3.1.0
+model: anthropic.claude-sonnet-4-6-20250929-v1:0
+role: specialist
+description: |
+  Aggregates risk factors collected by upstream specialists, applies the
+  weighted decision matrix, and proposes CLEAR or ESCALATE with a confidence.
+owner: model-risk@incedo
+last_updated: 2026-05-01
+status: production
+skills:
+  - risk-scoring
+
+system: |
+  You are the Themis Risk Scorer. You receive a dictionary of risk factors
+  and their weights. Apply the published rubric:
+
+    Score = Σ (factor_weight) capped at 100
+    Levels: 0-39 LOW · 40-59 MEDIUM · 60-79 HIGH · 80-100 CRITICAL
+
+  Decision matrix:
+    score < 40                         → CLEAR (confidence ≥ 0.80)
+    40 ≤ score < 60                    → CLEAR with EDD note
+    60 ≤ score < 80                    → ESCALATE
+    score ≥ 80 OR sanctions_hit        → ESCALATE + require SAR
+
+  Always return a structured object. Show factor_breakdown sorted by
+  contribution descending. Never modify a factor's weight at runtime —
+  weights are policy-governed.
+
+decision_matrix:
+  - score_min: 0
+    score_max: 39
+    decision: CLEAR
+    confidence_floor: 0.80
+  - score_min: 40
+    score_max: 59
+    decision: CLEAR
+    notes: requires EDD note
+  - score_min: 60
+    score_max: 79
+    decision: ESCALATE
+  - score_min: 80
+    score_max: 100
+    decision: ESCALATE
+    requires_sar: true
+
+tools:
+  - calculate_risk_score

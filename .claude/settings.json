@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/LangChain/Mizuho-Code/recon-x/reconx-prototype/**)",
+      "Read(//c/LangChain/Mizuho-Code/recon-x/**)"
+    ]
+  }
+}

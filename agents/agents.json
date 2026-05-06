@@ -1,0 +1,108 @@
+{
+  "$schema": "./agents.schema.json",
+  "version": "2026.05.01",
+  "owner": "platform-team@incedo",
+  "agents": [
+    {
+      "id": "supervisor",
+      "name": "Supervisor",
+      "role": "orchestrator",
+      "description": "Routes alerts to specialist agents and decides when the investigation is complete.",
+      "model": "anthropic.claude-sonnet-4-6-20250929-v1:0",
+      "promptFile": "supervisor.yaml",
+      "skills": [],
+      "tools": [],
+      "routes": ["alert-investigator", "network-analyst", "risk-scorer", "sar-drafter"],
+      "status": "PRODUCTION",
+      "owner": "platform-team@incedo",
+      "version": "1.2.0",
+      "lastDeployed": "2026-04-22",
+      "metrics": {
+        "p50_latency_ms": 480,
+        "p95_latency_ms": 1240,
+        "success_rate": 0.987,
+        "calls_30d": 6840
+      }
+    },
+    {
+      "id": "alert-investigator",
+      "name": "Alert Investigator",
+      "role": "specialist",
+      "description": "Front-line investigator. Pulls alert metadata, customer KYC, and walks flagged transactions.",
+      "model": "anthropic.claude-sonnet-4-6-20250929-v1:0",
+      "promptFile": "alert-investigator.yaml",
+      "skills": ["alert-investigation", "structuring-detection"],
+      "tools": ["get_alert_details", "get_customer_profile", "search_transactions", "calculate_baseline", "search_keywords"],
+      "status": "PRODUCTION",
+      "owner": "aml-engineering@incedo",
+      "version": "2.4.0",
+      "lastDeployed": "2026-04-30",
+      "metrics": {
+        "p50_latency_ms": 2150,
+        "p95_latency_ms": 5400,
+        "success_rate": 0.994,
+        "calls_30d": 12480
+      }
+    },
+    {
+      "id": "network-analyst",
+      "name": "Network Analyst",
+      "role": "specialist",
+      "description": "Two-hop graph analysis for circular flows, layering, and high-risk counterparties.",
+      "model": "anthropic.claude-sonnet-4-6-20250929-v1:0",
+      "promptFile": "network-analyst.yaml",
+      "skills": ["network-analysis", "kyc-verification"],
+      "tools": ["analyze_network", "check_sanctions", "get_customer_profile"],
+      "status": "PRODUCTION",
+      "owner": "graph-ml@incedo",
+      "version": "1.5.1",
+      "lastDeployed": "2026-04-15",
+      "metrics": {
+        "p50_latency_ms": 3400,
+        "p95_latency_ms": 8200,
+        "success_rate": 0.972,
+        "calls_30d": 4210
+      }
+    },
+    {
+      "id": "risk-scorer",
+      "name": "Risk Scorer",
+      "role": "specialist",
+      "description": "Aggregates risk factors and proposes CLEAR or ESCALATE with calibrated confidence.",
+      "model": "anthropic.claude-sonnet-4-6-20250929-v1:0",
+      "promptFile": "risk-scorer.yaml",
+      "skills": ["risk-scoring"],
+      "tools": ["calculate_risk_score"],
+      "status": "PRODUCTION",
+      "owner": "model-risk@incedo",
+      "version": "3.1.0",
+      "lastDeployed": "2026-05-01",
+      "metrics": {
+        "p50_latency_ms": 320,
+        "p95_latency_ms": 740,
+        "success_rate": 0.999,
+        "calls_30d": 12480
+      }
+    },
+    {
+      "id": "sar-drafter",
+      "name": "SAR Drafter",
+      "role": "specialist",
+      "description": "Generates FinCEN-compliant 6-section SAR narratives from the investigation journal.",
+      "model": "anthropic.claude-sonnet-4-6-20250929-v1:0",
+      "promptFile": "sar-drafter.yaml",
+      "skills": ["narrative-generation"],
+      "tools": [],
+      "status": "STAGING",
+      "owner": "regulatory-reporting@incedo",
+      "version": "2.0.3",
+      "lastDeployed": "2026-04-28",
+      "metrics": {
+        "p50_latency_ms": 5200,
+        "p95_latency_ms": 11800,
+        "success_rate": 0.961,
+        "calls_30d": 432
+      }
+    }
+  ]
+}
