@@ -154,15 +154,25 @@ const DATA_PROXY_PREFIXES = [
 ];
 
 app.use(async (req, res, next) => {
-  if (req.method !== 'GET') return next();
   const matched = DATA_PROXY_PREFIXES.some(
     p => req.path === p || req.path.startsWith(p + '/')
   );
   if (!matched) return next();
 
+  // Phase 1: GETs forwarded as-is. Phase 2: POST /api/cases/:caseId/sar.
+  const isWriteSarRoute =
+    req.method === 'POST' && /^\/api\/cases\/[^/]+\/sar$/.test(req.path);
+  if (req.method !== 'GET' && !isWriteSarRoute) return next();
+
   const target = `${AGENT_API_URL}${req.originalUrl}`;
   try {
-    const upstream = await fetch(target);
+    const upstream = await fetch(target, {
+      method: req.method,
+      headers: req.method === 'POST'
+        ? { 'Content-Type': 'application/json' }
+        : undefined,
+      body: req.method === 'POST' ? JSON.stringify(req.body || {}) : undefined,
+    });
     res.status(upstream.status);
     upstream.headers.forEach((v, k) => {
       if (k.toLowerCase() === 'content-encoding') return;

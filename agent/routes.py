@@ -10,8 +10,14 @@ from __future__ import annotations
 
 from typing import Any
 
+from datetime import date, timedelta
+import os
+import json
+import uuid
+
+import boto3
 from fastapi import APIRouter, HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import func, select, desc
 from sqlalchemy.orm import selectinload
 
 from db.database import SessionLocal
@@ -489,3 +495,116 @@ async def list_connectors():
     async with SessionLocal() as s:
         result = await s.execute(select(M.Connector).order_by(M.Connector.id))
         return [_connector_dict(c) for c in result.scalars().all()]
+
+
+# ---------------------------------------------------------------------
+# Phase 2 — SAR generation (write endpoint)
+# ---------------------------------------------------------------------
+
+@router.post("/api/cases/{case_id}/sar")
+async def generate_sar(case_id: str):
+    """Generate a draft SAR narrative via Bedrock for a given case and
+    persist it as a new row in `sars`. Picks the most recent
+    investigation for the case's alert as additional context.
+    """
+    async with SessionLocal() as s:
+        case_obj = (await s.execute(
+            select(M.Case).where(M.Case.id == case_id)
+        )).scalar_one_or_none()
+        if not case_obj:
+            raise HTTPException(404, f"Case {case_id} not found")
+
+        customer = (await s.execute(
+            select(M.Customer).where(M.Customer.id == case_obj.customer_id)
+        )).scalar_one_or_none()
+        alert = (await s.execute(
+            select(M.Alert).where(M.Alert.id == case_obj.alert_id)
+        )).scalar_one_or_none()
+
+        latest_inv = (await s.execute(
+            select(M.Investigation)
+            .options(selectinload(M.Investigation.journal))
+            .where(M.Investigation.alert_id == case_obj.alert_id)
+            .order_by(desc(M.Investigation.started_at))
+            .limit(1)
+        )).scalar_one_or_none()
+
+        narrative = _draft_sar_narrative(case_obj, customer, alert, latest_inv)
+
+        sar_id = f"SAR-{uuid.uuid4().hex[:8].upper()}"
+        new_sar = M.SAR(
+            id=sar_id,
+            case_id=case_obj.id,
+            customer_id=case_obj.customer_id,
+            status="DRAFT",
+            filing_deadline=(date.today() + timedelta(days=30)),
+            prepared_by="Themis AI",
+            reviewed_by=None,
+            qc_score=None,
+            narrative=narrative,
+        )
+        s.add(new_sar)
+        await s.commit()
+
+    return {"id": sar_id, "caseId": case_id, "status": "DRAFT", "narrative": narrative}
+
+
+def _draft_sar_narrative(case_obj, customer, alert, investigation) -> str:
+    """Use Bedrock to draft a SAR narrative from case + investigation
+    context. Falls back to a deterministic stub if Bedrock isn't
+    configured."""
+    customer_name = (customer.name if customer else case_obj.customer_id)
+    alert_id = alert.id if alert else case_obj.alert_id
+    findings = case_obj.findings or "No findings recorded."
+
+    journal_lines = []
+    if investigation and investigation.journal:
+        for j in sorted(investigation.journal, key=lambda x: x.step or 0):
+            journal_lines.append(f"- Step {j.step} ({j.step_name}): {j.analysis or ''}")
+    journal_block = "\n".join(journal_lines) if journal_lines else "No prior investigation journal available."
+
+    region = os.getenv("AWS_BEDROCK_REGION", "us-east-1")
+    model_id = os.getenv("AWS_BEDROCK_MODEL", "anthropic.claude-3-sonnet-20240229-v1:0")
+    aws_key = os.getenv("AWS_ACCESS_KEY_ID")
+    if not aws_key:
+        return _stub_sar_narrative(customer_name, alert_id, findings, journal_lines)
+
+    try:
+        client = boto3.client("bedrock-runtime", region_name=region)
+        prompt = (
+            f"You are drafting a Suspicious Activity Report (SAR) narrative for case {case_obj.id} "
+            f"on alert {alert_id} for subject {customer_name}.\n\n"
+            f"Case findings:\n{findings}\n\n"
+            f"Investigation journal:\n{journal_block}\n\n"
+            f"Write a concise SAR narrative (4-6 paragraphs) covering: subject, suspicious activity, "
+            f"red flags, and recommendation. Use FinCEN-compliant language."
+        )
+        body = {
+            "anthropic_version": "bedrock-2023-05-31",
+            "max_tokens": 1500,
+            "temperature": 0.3,
+            "messages": [{"role": "user", "content": prompt}],
+        }
+        resp = client.invoke_model(
+            modelId=model_id, body=json.dumps(body),
+            contentType="application/json", accept="application/json",
+        )
+        payload = json.loads(resp["body"].read())
+        if isinstance(payload.get("content"), list):
+            return "".join(c.get("text", "") for c in payload["content"] if c.get("type") == "text")
+        return payload.get("completion") or _stub_sar_narrative(customer_name, alert_id, findings, journal_lines)
+    except Exception as e:
+        return _stub_sar_narrative(customer_name, alert_id, findings, journal_lines, error=str(e))
+
+
+def _stub_sar_narrative(customer_name, alert_id, findings, journal_lines, error=None) -> str:
+    header = f"SAR DRAFT — Subject: {customer_name} | Source Alert: {alert_id}\n\n"
+    body = (
+        f"Subject Information: {customer_name}.\n\n"
+        f"Suspicious Activity Findings: {findings}\n\n"
+        f"Investigation Journal:\n" + ("\n".join(journal_lines) if journal_lines else "Not available.") + "\n\n"
+        f"Recommendation: File this SAR with FinCEN within the regulatory deadline."
+    )
+    if error:
+        body += f"\n\n[Note: AI narrative generation unavailable — {error}. This is a deterministic draft.]"
+    return header + body

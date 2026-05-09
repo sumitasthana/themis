@@ -42,7 +42,6 @@ The Express BFF handles `/api/chat` directly against AWS Bedrock; everything els
 │   └── requirements.txt
 ├── prompts/                    # YAML prompts (supervisor, alert-investigator, ...)
 ├── skills/aml/                 # markdown skill bodies
-├── scripts/                    # one-off scripts (seed.js, seed_db.py)
 └── docs/                       # CHANGELOG, DESIGN_SYSTEM, QUICK_REFERENCE, data doc
 ```
 
@@ -84,12 +83,10 @@ docker run -d --name local-postgres `
   postgres
 ```
 
-### Schema + seed (one-time)
+### Schema (one-time)
 
 ```powershell
 cd agent ; python -m alembic upgrade head ; cd ..
-node scripts/seed.js
-python scripts/seed_db.py
 ```
 
 ## Run
@@ -110,8 +107,9 @@ Then open <http://localhost:5173>.
 |Method|Path|Notes|
 |---|---|---|
 |`POST`|`/api/chat`|Bedrock chat (handled by Express directly)|
-|`POST`|`/api/agent/investigate`|Run agent investigation|
-|`GET`|`/api/agent/investigate/:id/stream`|SSE progress|
+|`POST`|`/api/agent/investigate`|Run agent investigation (DB-backed, persists)|
+|`GET`|`/api/agent/investigate/:id/stream`|SSE progress (10 steps)|
+|`POST`|`/api/cases/:id/sar`|Generate SAR draft via Bedrock + persist|
 |`GET`|`/api/alerts` `…/:id`|Alerts (Phase 1 read API)|
 |`GET`|`/api/cases` `…/:id`|Cases|
 |`GET`|`/api/customers` `…/:id`|Customers + linked alerts/cases|

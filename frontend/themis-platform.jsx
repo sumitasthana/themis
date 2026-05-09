@@ -1064,6 +1064,10 @@ function AlertDetailView({alertId,onNav}){
   const [narrativeComments,setNarrativeComments]=useState([]);
   const [expandedSteps,setExpandedSteps]=useState({});
   const [txnFilter,setTxnFilter]=useState("all");
+  // Live agent investigation state — populated by SSE
+  const [liveSteps,setLiveSteps]=useState([]);
+  const [liveStatus,setLiveStatus]=useState("idle"); // idle | running | done | error
+  const [liveResult,setLiveResult]=useState(null);
 
   const alert=ALERTS.find(a=>a.id===alertId);
   if(!alert)return null;
@@ -1073,6 +1077,24 @@ function AlertDetailView({alertId,onNav}){
   const netData=NETWORK_Data[alertId]||null;
   const journalSteps=JOURNAL_STEPS[alertId]||[];
   const linkedCase=CASES.find(c=>c.alertId===alertId);
+
+  const startInvestigation=()=>{
+    setLiveSteps([]);setLiveResult(null);setLiveStatus("running");setTab("journal");
+    const es=new EventSource(`/api/agent/investigate/${alertId}/stream`);
+    es.onmessage=(ev)=>{
+      try{
+        const m=JSON.parse(ev.data);
+        if(m.type==="step_complete"){
+          setLiveSteps(prev=>[...prev,{n:m.step,title:m.step_name,findings:m.findings||[],status:"complete"}]);
+        } else if(m.type==="complete"){
+          setLiveResult(m); setLiveStatus("done"); es.close();
+        } else if(m.type==="error"){
+          setLiveStatus("error"); es.close();
+        }
+      }catch{/* ignore */}
+    };
+    es.onerror=()=>{setLiveStatus("error"); es.close();};
+  };
 
   const filteredTxns=txnFilter==="flagged"?txns.filter(t=>t.flagged):txnFilter==="inflow"?txns.filter(t=>t.amount>0):txnFilter==="outflow"?txns.filter(t=>t.amount<0):txns;
   const flaggedTxns=txns.filter(t=>t.flagged);
@@ -1104,6 +1126,10 @@ function AlertDetailView({alertId,onNav}){
           <div style={{fontSize:13,color:"#64748B"}}>{customer?.name} · {fd(alert.date)} · Confidence {alert.confidence}%</div>
         </div>
         <div style={{display:"flex",gap:8}}>
+          <button onClick={startInvestigation} disabled={liveStatus==="running"}
+            style={{padding:"7px 14px",background:liveStatus==="running"?"#94A3B8":ORANGE,color:"white",border:"none",borderRadius:7,cursor:liveStatus==="running"?"not-allowed":"pointer",fontWeight:600,fontSize:12}}>
+            {liveStatus==="running"?`Investigating · ${liveSteps.length}/10`:"Run AI Investigation"}
+          </button>
           {linkedCase
             ?<button onClick={()=>onNav("case-detail",linkedCase.id)} style={{padding:"7px 14px",background:NAVY,color:"white",border:"none",borderRadius:7,cursor:"pointer",fontWeight:600,fontSize:12}}>View Case ?</button>
             :alert.status==="ESCALATE"&&<button onClick={()=>onNav("cases")} style={{padding:"7px 14px",background:"#EF4444",color:"white",border:"none",borderRadius:7,cursor:"pointer",fontWeight:600,fontSize:12}}>Create Case</button>}
@@ -1188,6 +1214,28 @@ function AlertDetailView({alertId,onNav}){
           {/* -- INVESTIGATION JOURNAL TAB -- */}
           {tab==="journal"&&(
             <div>
+              {liveStatus!=="idle"&&(
+                <div style={{background:"white",borderRadius:10,padding:18,border:`1px solid ${liveStatus==="error"?"#FCA5A5":"#BFDBFE"}`,marginBottom:14}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                    <div style={{fontSize:13,fontWeight:700,color:"#0F172A"}}>
+                      Live Investigation · {liveStatus==="running"?`step ${liveSteps.length}/10`:liveStatus==="done"?"complete":"error"}
+                    </div>
+                    {liveResult&&<Badge label={liveResult.recommendation||"DONE"} color={sc(liveResult.recommendation||"")} bg={liveResult.recommendation==="ESCALATE"?"#FEE2E2":"#D1FAE5"}/>}
+                  </div>
+                  {liveSteps.map(s=>(
+                    <div key={s.n} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"6px 0",borderBottom:"1px solid #F1F5F9",fontSize:12}}>
+                      <span style={{width:22,height:22,borderRadius:"50%",background:NAVY,color:"white",fontSize:11,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{s.n}</span>
+                      <div style={{flex:1}}>
+                        <div style={{fontWeight:600,color:"#0F172A"}}>{s.title}</div>
+                        {s.findings&&s.findings.length>0&&<div style={{fontSize:11,color:"#64748B",marginTop:2}}>{s.findings.join(" · ")}</div>}
+                      </div>
+                    </div>
+                  ))}
+                  {liveResult&&liveResult.narrative&&(
+                    <pre style={{whiteSpace:"pre-wrap",fontSize:11,color:"#334155",background:"#F8FAFC",padding:10,borderRadius:6,marginTop:10,fontFamily:"inherit"}}>{liveResult.narrative}</pre>
+                  )}
+                </div>
+              )}
               <div style={{background:"white",borderRadius:10,padding:18,border:"1px solid #E2E8F0",marginBottom:14}}>
                 <div style={{fontSize:14,fontWeight:700,color:"#0F172A",marginBottom:4}}> Themis L1 Agent · Investigation Journal</div>
                 <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:14}}>
@@ -1493,7 +1541,29 @@ function CaseDetailView({caseId,onNav}){
   const [tab,setTab]=useState("overview");
   const [uploading,setUploading]=useState(false);
   const [docs,setDocs]=useState(null);
+  const [generatingSar,setGeneratingSar]=useState(false);
   const fileInputRef=useRef(null);
+
+  const generateSar=async()=>{
+    if(generatingSar)return;
+    setGeneratingSar(true);
+    try{
+      const r=await fetch(`/api/cases/${caseId}/sar`,{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});
+      const data=await r.json();
+      if(data&&data.id){
+        // The new SAR is server-side; route to the SAR list which fetches from API
+        onNav("sar-list");
+      } else {
+        alert("Failed to generate SAR. See console for details.");
+        console.error(data);
+      }
+    } catch(e){
+      console.error("SAR generation error:",e);
+      alert("Could not reach SAR endpoint.");
+    } finally {
+      setGeneratingSar(false);
+    }
+  };
 
   const cs=CASES.find(c=>c.id===caseId);
   if(!cs)return null;
@@ -1528,7 +1598,7 @@ function CaseDetailView({caseId,onNav}){
         </div>
         <div style={{display:"flex",gap:8}}>
           {sar?<button onClick={()=>onNav("sar-detail",sar.id)} style={{padding:"7px 14px",background:"#7C3AED",color:"white",border:"none",borderRadius:7,cursor:"pointer",fontWeight:600,fontSize:12}}>View SAR ?</button>
-            :<button onClick={()=>onNav("sar-list")} style={{padding:"7px 14px",background:"#7C3AED",color:"white",border:"none",borderRadius:7,cursor:"pointer",fontWeight:600,fontSize:12}}>Generate SAR</button>}
+            :<button onClick={generateSar} disabled={generatingSar} style={{padding:"7px 14px",background:generatingSar?"#94A3B8":"#7C3AED",color:"white",border:"none",borderRadius:7,cursor:generatingSar?"not-allowed":"pointer",fontWeight:600,fontSize:12}}>{generatingSar?"Generating SAR…":"Generate SAR"}</button>}
           <button onClick={()=>onNav("alert-detail",cs.alertId)} style={{padding:"7px 14px",background:NAVY,color:"white",border:"none",borderRadius:7,cursor:"pointer",fontWeight:600,fontSize:12}}>View Alert ?</button>
         </div>
       </div>
@@ -1723,7 +1793,7 @@ function CaseDetailView({caseId,onNav}){
       ):(
         <div style={{background:"white",borderRadius:10,padding:40,border:"2px dashed #E2E8F0",textAlign:"center"}}>
           <div style={{fontSize:14,fontWeight:700,color:"#0F172A",marginBottom:8}}>No SAR Generated Yet</div>
-          <button onClick={()=>onNav("sar-list")} style={{padding:"9px 22px",background:"#7C3AED",color:"white",border:"none",borderRadius:8,cursor:"pointer",fontWeight:600,fontSize:13}}> Generate SAR with Themis AI</button>
+          <button onClick={generateSar} disabled={generatingSar} style={{padding:"9px 22px",background:generatingSar?"#94A3B8":"#7C3AED",color:"white",border:"none",borderRadius:8,cursor:generatingSar?"not-allowed":"pointer",fontWeight:600,fontSize:13}}> {generatingSar?"Generating SAR…":"Generate SAR with Themis AI"}</button>
         </div>
       ))}
     </div>
@@ -2255,6 +2325,24 @@ function AlertsView({onNav}){
 // --- REMAINING VIEWS ------------------------------------------
 
 function NetworkView(){
+  const [graph,setGraph]=useState(null);
+  useEffect(()=>{
+    let alive=true;
+    fetch(`/api/network/ALERT-0109`)
+      .then(r=>r.json())
+      .then(d=>{
+        if(!alive||!d||!d.nodes)return;
+        // API shape: {nodes:[{id,label,type,x,y,risk}], edges:[{source,target,amount,direction}]}
+        // NetworkGraph expects: edges with from/to/dir
+        const adapted={
+          nodes:d.nodes,
+          edges:(d.edges||[]).map(e=>({from:e.source,to:e.target,amount:e.amount,dir:e.direction})),
+        };
+        setGraph(adapted);
+      })
+      .catch(()=>{/* fall back to seeded const */ setGraph(NETWORK_Data["ALERT-0109"]);});
+    return()=>{alive=false;};
+  },[]);
   return(
     <div style={{padding:"24px 28px"}}>
       <SH title="Money Laundering Network Detection" sub="Themis Graph ML · Real-time relationship mapping" action={<Pill label="Live"/>}/>
@@ -2263,7 +2351,7 @@ function NetworkView(){
           {[[" Subject",NAVY],[" Entity","#F59E0B"],[" Branch","#10B981"],[" Bank","#8B5CF6"]].map(([l,c])=><span key={l} style={{color:c,fontWeight:600}}>{l}</span>)}
           <span style={{marginLeft:"auto",color:"#94A3B8"}}> Inflow   Outflow  - - - Potential</span>
         </div>
-        <NetworkGraph Data={NETWORK_Data["ALERT-0109"]}/>
+        <NetworkGraph Data={graph}/>
       </div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
         <div style={{background:"white",borderRadius:10,padding:16,border:"1px solid #E2E8F0"}}>

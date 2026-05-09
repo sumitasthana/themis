@@ -11,8 +11,9 @@ This module implements the LangGraph-based agent orchestrator that:
 
 import json
 import os
+import uuid
 from typing import Dict, List, Any, Optional, TypedDict, Annotated
-from datetime import datetime
+from datetime import datetime, timezone
 from operator import add
 
 # LangGraph and LangChain imports (will be used in future)
@@ -33,6 +34,8 @@ from tools import (
     calculate_risk_score,
     TOOL_REGISTRY
 )
+from db.database import SessionLocal
+from db import models as M
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -98,7 +101,7 @@ class ThemisAgent:
         self.skills_loader = SkillsLoader(skills_dir)
         self.skills = self.skills_loader.list_skills()
         
-        print(f"✅ Themis Agent initialized with {len(self.skills)} skills")
+        print(f"Themis Agent initialized with {len(self.skills)} skills")
     
     
     def create_journal_entry(
@@ -139,23 +142,26 @@ class ThemisAgent:
         }
     
     
-    def investigate_alert(self, alert_id: str) -> Dict[str, Any]:
+    async def investigate_alert(self, alert_id: str) -> Dict[str, Any]:
         """
         Run complete AML alert investigation
-        
+
         Args:
             alert_id: Alert identifier
-        
+
         Returns:
             Investigation results with journal, recommendation, and narrative
         """
         print(f"\n{'='*70}")
-        print(f"🔍 Starting Investigation: {alert_id}")
+        print(f"Starting Investigation: {alert_id}")
         print(f"{'='*70}\n")
-        
-        # Initialize state
+
+        started_at = datetime.now(timezone.utc)
+        investigation_id = str(uuid.uuid4())
+
         state = {
             "alert_id": alert_id,
+            "investigation_id": investigation_id,
             "alert_details": None,
             "customer_profile": None,
             "transactions": None,
@@ -174,46 +180,33 @@ class ThemisAgent:
             "confidence": None,
             "narrative": None
         }
-        
-        # Execute investigation workflow
+
         try:
-            # Step 1: Get Alert Details
-            state = self._step_1_alert_details(state)
-            
-            # Step 2: Get Customer Profile
-            state = self._step_2_customer_profile(state)
-            
-            # Step 3: Search Transactions
-            state = self._step_3_transactions(state)
-            
-            # Step 4: Calculate Baseline
-            state = self._step_4_baseline(state)
-            
-            # Step 5: Verify Income
-            state = self._step_5_income(state)
-            
-            # Step 6: Search Keywords
-            state = self._step_6_keywords(state)
-            
-            # Step 7: Analyze Network
-            state = self._step_7_network(state)
-            
-            # Step 8: Check Sanctions
-            state = self._step_8_sanctions(state)
-            
-            # Step 9: Calculate Risk Score
-            state = self._step_9_risk_score(state)
-            
-            # Step 10: Generate Narrative
-            state = self._step_10_narrative(state)
-            
+            state = await self._step_1_alert_details(state)
+            state = await self._step_2_customer_profile(state)
+            state = await self._step_3_transactions(state)
+            state = await self._step_4_baseline(state)
+            state = await self._step_5_income(state)
+            state = await self._step_6_keywords(state)
+            state = await self._step_7_network(state)
+            state = await self._step_8_sanctions(state)
+            state = await self._step_9_risk_score(state)
+            state = await self._step_10_narrative(state)
         except Exception as e:
-            print(f"❌ Investigation error: {str(e)}")
+            print(f"Investigation error: {str(e)}")
             state["errors"].append(str(e))
-        
-        # Return investigation results
+
+        completed_at = datetime.now(timezone.utc)
+
+        try:
+            await self._persist_investigation(state, started_at, completed_at)
+        except Exception as e:
+            print(f"Failed to persist investigation: {str(e)}")
+            state["errors"].append(f"persist: {str(e)}")
+
         return {
             "alert_id": alert_id,
+            "investigation_id": investigation_id,
             "status": "completed" if not state["errors"] else "error",
             "recommendation": state["recommendation"],
             "confidence": state["confidence"],
@@ -221,15 +214,55 @@ class ThemisAgent:
             "journal": state["journal_entries"],
             "narrative": state["narrative"],
             "errors": state["errors"],
-            "completed_at": datetime.now().isoformat()
+            "completed_at": completed_at.isoformat(),
         }
+
+    async def _persist_investigation(self, state: Dict, started_at: datetime, completed_at: datetime) -> None:
+        """Insert one row each into investigations / investigation_journal /
+        investigation_risk_factors. Single async session, single commit."""
+        async with SessionLocal() as s:
+            inv = M.Investigation(
+                id=state["investigation_id"],
+                alert_id=state["alert_id"],
+                started_at=started_at,
+                completed_at=completed_at,
+                status="completed" if not state["errors"] else "error",
+                recommendation=state.get("recommendation"),
+                confidence=state.get("confidence"),
+                risk_score=state.get("risk_score"),
+                narrative=state.get("narrative"),
+            )
+            s.add(inv)
+
+            for entry in state.get("journal_entries", []):
+                s.add(M.InvestigationJournal(
+                    investigation_id=state["investigation_id"],
+                    step=entry.get("step"),
+                    step_name=entry.get("step_name"),
+                    ts=datetime.fromisoformat(entry["timestamp"]) if entry.get("timestamp") else None,
+                    tool=entry.get("tool"),
+                    tool_input=entry.get("tool_input"),
+                    tool_output=_jsonable(entry.get("tool_output")),
+                    analysis=entry.get("analysis"),
+                    findings=entry.get("findings"),
+                    status=entry.get("status"),
+                ))
+
+            for factor, weight in (state.get("risk_factors") or {}).items():
+                s.add(M.InvestigationRiskFactor(
+                    investigation_id=state["investigation_id"],
+                    factor=factor,
+                    weight=weight,
+                ))
+
+            await s.commit()
     
     
-    def _step_1_alert_details(self, state: Dict) -> Dict:
+    async def _step_1_alert_details(self, state: Dict) -> Dict:
         """Step 1: Retrieve alert details"""
-        print("📋 Step 1: Retrieving alert details...")
-        
-        alert_details = get_alert_details(state["alert_id"])
+        print("Step 1: Retrieving alert details...")
+
+        alert_details = await get_alert_details(state["alert_id"])
         state["alert_details"] = alert_details
         
         # Analyze findings
@@ -276,12 +309,12 @@ class ThemisAgent:
         return state
     
     
-    def _step_2_customer_profile(self, state: Dict) -> Dict:
+    async def _step_2_customer_profile(self, state: Dict) -> Dict:
         """Step 2: Retrieve customer profile"""
-        print("👤 Step 2: Retrieving customer profile...")
-        
+        print("Step 2: Retrieving customer profile...")
+
         customer_id = state["alert_details"]["customer_id"]
-        profile = get_customer_profile(customer_id)
+        profile = await get_customer_profile(customer_id)
         state["customer_profile"] = profile
         
         analysis = f"Customer {profile['customer_name']} is a {profile['customer_type']} " \
@@ -329,12 +362,12 @@ class ThemisAgent:
         return state
     
     
-    def _step_3_transactions(self, state: Dict) -> Dict:
+    async def _step_3_transactions(self, state: Dict) -> Dict:
         """Step 3: Search transactions"""
-        print("💳 Step 3: Searching transaction history...")
-        
+        print("Step 3: Searching transaction history...")
+
         customer_id = state["alert_details"]["customer_id"]
-        transactions = search_transactions(customer_id, min_amount=1000)
+        transactions = await search_transactions(customer_id, min_amount=1000)
         state["transactions"] = transactions
         
         total_volume = sum(t['amount'] for t in transactions)
@@ -370,12 +403,12 @@ class ThemisAgent:
         return state
     
     
-    def _step_4_baseline(self, state: Dict) -> Dict:
+    async def _step_4_baseline(self, state: Dict) -> Dict:
         """Step 4: Calculate baseline"""
-        print("📊 Step 4: Calculating transaction baseline...")
-        
+        print("Step 4: Calculating transaction baseline...")
+
         customer_id = state["alert_details"]["customer_id"]
-        baseline = calculate_baseline(customer_id, period_days=90)
+        baseline = await calculate_baseline(customer_id, period_days=90)
         state["baseline_analysis"] = baseline
         
         deviation_pct = baseline['deviations']['volume_deviation_pct']
@@ -417,12 +450,12 @@ class ThemisAgent:
         return state
     
     
-    def _step_5_income(self, state: Dict) -> Dict:
+    async def _step_5_income(self, state: Dict) -> Dict:
         """Step 5: Verify income"""
-        print("💰 Step 5: Verifying income...")
-        
+        print("Step 5: Verifying income...")
+
         customer_id = state["alert_details"]["customer_id"]
-        income = verify_income(customer_id)
+        income = await verify_income(customer_id)
         state["income_verification"] = income
         
         analysis = f"Stated annual income: ${income['stated_annual_income']:,.2f}. " \
@@ -462,13 +495,13 @@ class ThemisAgent:
         return state
     
     
-    def _step_6_keywords(self, state: Dict) -> Dict:
+    async def _step_6_keywords(self, state: Dict) -> Dict:
         """Step 6: Search keywords"""
-        print("🔍 Step 6: Searching for suspicious keywords...")
-        
+        print("Step 6: Searching for suspicious keywords...")
+
         customer_id = state["alert_details"]["customer_id"]
-        keywords = ["loan", "gift", "cash", "consulting", "services"]
-        keyword_results = search_keywords(customer_id, keywords)
+        keywords = ["loan", "gift", "cash", "consulting", "services", "shell", "offshore", "nominee"]
+        keyword_results = await search_keywords(customer_id, keywords)
         state["keyword_results"] = keyword_results
         
         analysis = f"Searched for {len(keywords)} suspicious keywords. " \
@@ -503,12 +536,12 @@ class ThemisAgent:
         return state
     
     
-    def _step_7_network(self, state: Dict) -> Dict:
+    async def _step_7_network(self, state: Dict) -> Dict:
         """Step 7: Analyze network"""
-        print("🕸️  Step 7: Analyzing transaction network...")
-        
+        print("Step 7: Analyzing transaction network...")
+
         customer_id = state["alert_details"]["customer_id"]
-        network = analyze_network(customer_id, depth=2)
+        network = await analyze_network(customer_id, depth=2)
         state["network_analysis"] = network
         
         analysis = f"Network analysis found {network['total_connections']} connected entities. " \
@@ -549,12 +582,13 @@ class ThemisAgent:
         return state
     
     
-    def _step_8_sanctions(self, state: Dict) -> Dict:
+    async def _step_8_sanctions(self, state: Dict) -> Dict:
         """Step 8: Check sanctions"""
-        print("🚫 Step 8: Screening against sanctions lists...")
-        
+        print("Step 8: Screening against sanctions lists...")
+
         customer_name = state["customer_profile"]["customer_name"]
-        sanctions = check_sanctions(customer_name, "BUSINESS")
+        customer_type = state["customer_profile"].get("customer_type", "INDIVIDUAL")
+        sanctions = await check_sanctions(customer_name, customer_type)
         state["sanctions_results"] = sanctions
         
         analysis = f"Screened {customer_name} against {len(sanctions['lists_checked'])} sanctions lists. " \
@@ -589,9 +623,9 @@ class ThemisAgent:
         return state
     
     
-    def _step_9_risk_score(self, state: Dict) -> Dict:
-        """Step 9: Calculate risk score"""
-        print("⚖️  Step 9: Calculating risk score...")
+    async def _step_9_risk_score(self, state: Dict) -> Dict:
+        """Step 9: Calculate risk score (sync — pure computation)"""
+        print("Step 9: Calculating risk score...")
         
         risk_score = calculate_risk_score(state["risk_factors"])
         state["risk_score"] = risk_score
@@ -630,9 +664,9 @@ class ThemisAgent:
         return state
     
     
-    def _step_10_narrative(self, state: Dict) -> Dict:
+    async def _step_10_narrative(self, state: Dict) -> Dict:
         """Step 10: Generate investigation narrative"""
-        print("📝 Step 10: Generating investigation narrative...")
+        print("Step 10: Generating investigation narrative...")
         
         # Generate narrative summary
         alert = state["alert_details"]
@@ -705,16 +739,30 @@ INVESTIGATION COMPLETED: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 # HELPER FUNCTIONS
 # ═══════════════════════════════════════════════════════════════════
 
-def run_investigation(alert_id: str, skills_dir: str = None) -> Dict[str, Any]:
+async def run_investigation(alert_id: str, skills_dir: str = None) -> Dict[str, Any]:
     """
     Convenience function to run an investigation
-    
+
     Args:
         alert_id: Alert identifier
         skills_dir: Optional path to skills directory
-    
+
     Returns:
         Investigation results
     """
     agent = ThemisAgent(skills_dir=skills_dir)
-    return agent.investigate_alert(alert_id)
+    return await agent.investigate_alert(alert_id)
+
+
+def _jsonable(value: Any) -> Any:
+    """Coerce tool_output into JSON-serializable shape (handles dates,
+    numerics, nested lists). Keeps SQLAlchemy's JSONB happy."""
+    if value is None or isinstance(value, (str, bool, int, float)):
+        return value
+    if isinstance(value, dict):
+        return {k: _jsonable(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_jsonable(v) for v in value]
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return str(value)

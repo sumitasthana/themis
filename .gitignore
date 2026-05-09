@@ -3,6 +3,5 @@ dist
 .env
 *.log
 .DS_Store
-scripts/seed_data.json
 __pycache__/
 *.pyc

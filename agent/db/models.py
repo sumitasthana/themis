@@ -379,3 +379,56 @@ class Connector(Base):
     volume = Column(Text)
     latency = Column(Text)
     last_sync = Column(Text)
+
+
+# ---------------------------------------------------------------------
+# Investigations (Phase 2) — per-run audit trail
+# ---------------------------------------------------------------------
+
+from sqlalchemy import DateTime  # noqa: E402
+
+
+class Investigation(Base):
+    __tablename__ = "investigations"
+
+    id = Column(Text, primary_key=True)
+    alert_id = Column(Text, ForeignKey("alerts.id"))
+    started_at = Column(DateTime(timezone=True))
+    completed_at = Column(DateTime(timezone=True))
+    status = Column(Text)
+    recommendation = Column(Text)
+    confidence = Column(Numeric)
+    risk_score = Column(JSON)
+    narrative = Column(Text)
+
+    journal = relationship("InvestigationJournal", back_populates="investigation", cascade="all, delete-orphan")
+    factors = relationship("InvestigationRiskFactor", back_populates="investigation", cascade="all, delete-orphan")
+
+
+class InvestigationJournal(Base):
+    __tablename__ = "investigation_journal"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    investigation_id = Column(Text, ForeignKey("investigations.id", ondelete="CASCADE"))
+    step = Column(Integer)
+    step_name = Column(Text)
+    ts = Column(DateTime(timezone=True))
+    tool = Column(Text)
+    tool_input = Column(JSON)
+    tool_output = Column(JSON)
+    analysis = Column(Text)
+    findings = Column(JSON)
+    status = Column(Text)
+
+    investigation = relationship("Investigation", back_populates="journal")
+
+
+class InvestigationRiskFactor(Base):
+    __tablename__ = "investigation_risk_factors"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    investigation_id = Column(Text, ForeignKey("investigations.id", ondelete="CASCADE"))
+    factor = Column(Text)
+    weight = Column(Numeric)
+
+    investigation = relationship("Investigation", back_populates="factors")

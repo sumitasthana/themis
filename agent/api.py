@@ -142,12 +142,12 @@ async def investigate_alert(request: InvestigationRequest):
         raise HTTPException(status_code=503, detail="Agent not initialized")
     
     try:
-        print(f"\n🔍 Starting investigation for alert: {request.alert_id}")
-        
+        print(f"\nStarting investigation for alert: {request.alert_id}")
+
         # Run investigation
-        result = agent.investigate_alert(request.alert_id)
-        
-        print(f"✅ Investigation completed: {result['recommendation']}")
+        result = await agent.investigate_alert(request.alert_id)
+
+        print(f"Investigation completed: {result['recommendation']}")
         
         return InvestigationResponse(**result)
         
@@ -169,13 +169,19 @@ async def investigate_alert_stream(alert_id: str):
     
     async def generate_progress():
         """Generate SSE progress updates"""
+        import uuid
+        from datetime import timezone
+
+        investigation_id = str(uuid.uuid4())
+        started_at = datetime.now(timezone.utc)
         try:
             # Send start event
-            yield f"data: {json.dumps({'type': 'start', 'alert_id': alert_id, 'timestamp': datetime.now().isoformat()})}\n\n"
-            
+            yield f"data: {json.dumps({'type': 'start', 'alert_id': alert_id, 'investigation_id': investigation_id, 'timestamp': datetime.now().isoformat()})}\n\n"
+
             # Initialize state
             state = {
                 "alert_id": alert_id,
+                "investigation_id": investigation_id,
                 "alert_details": None,
                 "customer_profile": None,
                 "transactions": None,
@@ -212,9 +218,9 @@ async def investigate_alert_stream(alert_id: str):
             for step_num, (step_id, step_name, step_func) in enumerate(steps, 1):
                 # Send step start
                 yield f"data: {json.dumps({'type': 'step_start', 'step': step_num, 'step_name': step_name, 'timestamp': datetime.now().isoformat()})}\n\n"
-                
-                # Execute step
-                state = step_func(state)
+
+                # Execute step (now async)
+                state = await step_func(state)
                 
                 # Get latest journal entry
                 latest_entry = state["journal_entries"][-1] if state["journal_entries"] else None
@@ -225,10 +231,17 @@ async def investigate_alert_stream(alert_id: str):
                 # Small delay for UI rendering
                 await asyncio.sleep(0.1)
             
+            # Persist investigation results before sending final event
+            try:
+                await agent._persist_investigation(state, started_at, datetime.now(timezone.utc))
+            except Exception as persist_err:
+                state["errors"].append(f"persist: {persist_err}")
+
             # Send final result
             result = {
                 "type": "complete",
                 "alert_id": alert_id,
+                "investigation_id": investigation_id,
                 "recommendation": state["recommendation"],
                 "confidence": state["confidence"],
                 "risk_score": state["risk_score"],
@@ -236,9 +249,9 @@ async def investigate_alert_stream(alert_id: str):
                 "narrative": state["narrative"],
                 "timestamp": datetime.now().isoformat()
             }
-            
+
             yield f"data: {json.dumps(result)}\n\n"
-            
+
         except Exception as e:
             error_data = {
                 "type": "error",
