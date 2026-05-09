@@ -4,9 +4,9 @@
   "type": "module",
   "scripts": {
     "start": "node themis.mjs",
-    "dev": "concurrently \"node server.js\" \"vite\"",
-    "build": "vite build",
-    "preview": "vite preview",
+    "dev": "concurrently \"node server.js\" \"vite frontend\"",
+    "build": "vite build frontend",
+    "preview": "vite preview frontend",
     "server": "node server.js"
   },
   "bin": {

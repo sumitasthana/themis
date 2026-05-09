@@ -22,11 +22,15 @@ The Express BFF handles `/api/chat` directly against AWS Bedrock; everything els
 .
 ├── README.md
 ├── package.json / package-lock.json
-├── index.html / main.jsx / themis-platform.jsx / vite.config.js   # frontend
 ├── server.js                                                       # Express BFF
 ├── themis.mjs                                                      # CLI entry (`themis` bin)
 ├── start-all.ps1                                                   # launcher (Win)
 ├── .env                                                            # AWS + DB credentials (gitignored)
+├── frontend/                                                       # React + Vite UI
+│   ├── index.html
+│   ├── main.jsx
+│   ├── themis-platform.jsx
+│   └── vite.config.js
 ├── agent/                                                          # Python service
 │   ├── api.py                  # FastAPI app
 │   ├── orchestrator.py         # LangGraph multi-agent orchestrator

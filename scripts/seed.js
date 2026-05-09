@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
-const SRC = path.join(ROOT, 'themis-platform.jsx');
+const SRC = path.join(ROOT, 'frontend', 'themis-platform.jsx');
 const OUT = path.join(__dirname, 'seed_data.json');
 
 const source = fs.readFileSync(SRC, 'utf8');

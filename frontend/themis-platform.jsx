@@ -1,9 +1,9 @@
 ﻿import { useState, useRef, useEffect } from "react";
-import AGENTS_REGISTRY from "./agents/agents.json";
+import AGENTS_REGISTRY from "../agents/agents.json";
 
 // Centralized libraries loaded at build time by Vite
-const SKILL_MODULES  = import.meta.glob("./skills/aml/*.md",  { query:"?raw", import:"default", eager:true });
-const PROMPT_MODULES = import.meta.glob("./prompts/*.yaml",   { query:"?raw", import:"default", eager:true });
+const SKILL_MODULES  = import.meta.glob("../skills/aml/*.md",  { query:"?raw", import:"default", eager:true });
+const PROMPT_MODULES = import.meta.glob("../prompts/*.yaml",   { query:"?raw", import:"default", eager:true });
 
 // ============================================================
 // THEMIS by INCEDO · Complete AML Intelligence Platform
