@@ -1,164 +1,129 @@
-# Themis Platform - AML Intelligence Platform
+# Themis — AML Intelligence Platform
 
-Complete AML (Anti-Money Laundering) intelligence platform with AI-powered compliance copilot.
+AI-powered Anti-Money Laundering (AML) intelligence platform with a React UI, an Express BFF, and a Python (FastAPI + LangGraph) agent service.
 
-## ✅ End-to-End Test Results
+## Architecture
 
-### Backend API Test
-- **Status**: ✅ Working
-- **LLM Provider**: AWS Bedrock (Claude Sonnet 4)
-- **Credentials**: Loaded from `.env`
-- **Test Query**: "What is AML compliance?"
-- **Response**: Full, detailed response received successfully
-
-### Configuration
-All LLM calls use the AWS Bedrock credentials from `.env`:
-```
-AWS_ACCESS_KEY_ID=your_access_key_here
-AWS_SECRET_ACCESS_KEY=your_secret_key_here
-AWS_BEDROCK_REGION=us-east-1
-AWS_BEDROCK_MODEL=us.anthropic.claude-sonnet-4-6
+```text
+React (Vite, :5173)
+   ↓  /api/* (proxied)
+Express BFF (:3001)
+   ↓  forwards data routes + agent calls
+FastAPI agent (:8000)
+   ↓
+Postgres (:5433, Docker)
 ```
 
-**Note:** Create a `.env` file in the root directory with your actual AWS credentials.
+The Express BFF handles `/api/chat` directly against AWS Bedrock; everything else is forwarded to the Python service.
 
-## 🚀 Quick Start
+## Layout
 
-### Install Dependencies
+```text
+.
+├── README.md
+├── package.json / package-lock.json
+├── index.html / main.jsx / themis-platform.jsx / vite.config.js   # frontend
+├── server.js                                                       # Express BFF
+├── themis.mjs                                                      # CLI entry (`themis` bin)
+├── start-all.ps1                                                   # launcher (Win)
+├── .env                                                            # AWS + DB credentials (gitignored)
+├── agent/                                                          # Python service
+│   ├── api.py                  # FastAPI app
+│   ├── orchestrator.py         # LangGraph multi-agent orchestrator
+│   ├── routes.py               # GET data routes (Phase 1)
+│   ├── tools.py                # investigation tool layer
+│   ├── skills_loader.py        # YAML/markdown skill loader
+│   ├── db/                     # SQLAlchemy async engine + ORM models
+│   ├── alembic/ alembic.ini    # migrations
+│   └── requirements.txt
+├── prompts/                    # YAML prompts (supervisor, alert-investigator, ...)
+├── skills/aml/                 # markdown skill bodies
+├── agents/agents.json          # agent registry
+├── scripts/                    # one-off scripts (seed.js, seed_db.py)
+└── docs/                       # CHANGELOG, DESIGN_SYSTEM, QUICK_REFERENCE, data doc
+```
 
-**Node.js dependencies:**
+## Setup
+
+### Prerequisites
+
+- Node 18+
+- Python 3.11+
+- Docker (for Postgres)
+
+### Install
+
 ```powershell
 npm install
-```
-
-**Python dependencies (for Agent API):**
-```powershell
 pip install -r agent/requirements.txt
 ```
 
-### Run Development Servers
+### `.env`
 
-**Option 1: Start All Services (Recommended)**
+```text
+AWS_ACCESS_KEY_ID=...
+AWS_SECRET_ACCESS_KEY=...
+AWS_BEDROCK_REGION=us-east-1
+AWS_BEDROCK_MODEL=us.anthropic.claude-sonnet-4-6
+
+DATABASE_URL=postgresql+asyncpg://postgres:mysecretpassword@localhost:5433/themis_app
+DATABASE_URL_SYNC=postgresql+psycopg2://postgres:mysecretpassword@localhost:5433/themis_app
+```
+
+### Postgres
+
 ```powershell
+docker run -d --name local-postgres `
+  -e POSTGRES_PASSWORD=mysecretpassword `
+  -e POSTGRES_DB=themis_app `
+  -p 5433:5432 `
+  -v themis_pgdata:/var/lib/postgresql `
+  postgres
+```
+
+### Schema + seed (one-time)
+
+```powershell
+cd agent ; python -m alembic upgrade head ; cd ..
+node scripts/seed.js
+python scripts/seed_db.py
+```
+
+## Run
+
+```powershell
+# All three services
 .\start-all.ps1
+
+# …or individually
+python agent/api.py          # FastAPI on :8000
+npm run dev                  # Express + Vite (concurrently)
 ```
 
-**Option 2: Start Manually**
+Then open <http://localhost:5173>.
 
-Terminal 1 - Python Agent API:
-```powershell
-python agent/api.py
-```
+## Endpoints
 
-Terminal 2 - Node.js/React:
-```powershell
-npm run dev
-```
+|Method|Path|Notes|
+|---|---|---|
+|`POST`|`/api/chat`|Bedrock chat (handled by Express directly)|
+|`POST`|`/api/agent/investigate`|Run agent investigation|
+|`GET`|`/api/agent/investigate/:id/stream`|SSE progress|
+|`GET`|`/api/alerts` `…/:id`|Alerts (Phase 1 read API)|
+|`GET`|`/api/cases` `…/:id`|Cases|
+|`GET`|`/api/customers` `…/:id`|Customers + linked alerts/cases|
+|`GET`|`/api/sars` `…/:id`|SARs with audit trail|
+|`GET`|`/api/anomalies` `…/:id`|Anomalies|
+|`GET`|`/api/screening`|Screening results|
+|`GET`|`/api/network/:id`|Graph nodes + edges (alert id or customer id)|
+|`GET`|`/api/dashboard/summary`|Aggregated counts|
+|`GET`|`/api/models`|Model governance|
+|`GET`|`/api/connectors`|Data sources|
 
-This starts:
-- **Python Agent API**: http://localhost:8000 (FastAPI server)
-- **Frontend**: http://localhost:5173 (Vite dev server)
-- **Backend Proxy**: http://localhost:3001 (Express server)
+## Documentation
 
-### Test API Manually
-```powershell
-node test-api.js
-```
-
-## 🏗️ Architecture
-
-### Frontend (`themis-platform.jsx`)
-- React-based UI with multiple views (Dashboard, Alerts, Cases, SAR, etc.)
-- **Themis Chat** component with real-time AI copilot
-- All chat messages sent to `/api/chat` endpoint
-
-### Backend (`server.js`)
-- Express API server
-- AWS SDK Bedrock Runtime Client
-- Reads `.env` for credentials
-- Invokes Claude model via `InvokeModelCommand`
-
-### Proxy Configuration (`vite.config.js`)
-- Vite dev server proxies `/api/*` to `http://localhost:3001`
-- Enables seamless frontend-backend communication
-
-## 📁 Key Files
-
-- `themis-platform.jsx` - Main React application
-- `server.js` - Express API with AWS Bedrock integration
-- `main.jsx` - React entry point
-- `index.html` - HTML entry point
-- `vite.config.js` - Vite configuration
-- `package.json` - Dependencies and scripts
-- `.env` - AWS credentials (not committed to git)
-
-## 🔐 Security Notes
-
-- AWS credentials are loaded from `.env` (server-side only)
-- Never expose credentials in frontend code
-- Add `.env` to `.gitignore` before committing
-
-## 🧪 Features Tested
-
-✅ AWS Bedrock connection  
-✅ Claude model invocation  
-✅ Message history handling  
-✅ View context awareness  
-✅ Error handling and fallback  
-✅ Frontend-backend integration  
-
-## 📊 Chat Features
-
-The Themis AI Copilot can:
-- Answer questions about AML compliance
-- Explain alert patterns and risk indicators
-- Provide context-aware insights based on current view
-- Maintain conversation history
-- Handle errors gracefully with fallback responses
-
-## 🎯 Next Steps
-
-1. Open http://localhost:5173 in your browser
-2. Click "Chat with Themis" or "Ask Themis" button
-3. Ask questions about alerts, transactions, or AML compliance
-4. Verify responses are generated by AWS Bedrock Claude model
-
-All chat interactions now use your provided AWS Bedrock credentials!
-
-## 📚 Documentation
-
-- **`CHANGELOG.md`** - Complete project history with timestamps (Phase 1, UI updates, etc.)
-- **`DESIGN_SYSTEM.md`** - ReconX/Kratos design system (colors, components, patterns)
-- **`QUICK_REFERENCE.md`** - Copy-paste code snippets for common patterns
-- **`skills/aml/*.md`** - 6 AML investigation procedure skills (56K+ chars)
-
-## 🎨 Recent Updates
-
-### Phase 4: API Integration & Frontend (2026-05-04)
-- ✅ FastAPI backend with investigation endpoints
-- ✅ Real-time progress streaming (SSE)
-- ✅ Express proxy for frontend integration
-- ✅ Complete end-to-end workflow
-
-### Phase 3: Agent Orchestrator (2026-05-04)
-- ✅ 10-step investigation workflow
-- ✅ Risk factor accumulation and scoring
-- ✅ SAR-compliant narrative generation
-- ✅ 100% test coverage (6/6 tests passing)
-
-### Phase 2: Tool Layer (2026-05-03)
-- ✅ 9 investigation tools with mock data
-- ✅ Tool registry and metadata
-- ✅ 100% test coverage (10/10 tests passing)
-
-### Phase 1: Skills System (2026-05-02)
-- ✅ 6 comprehensive AML investigation skills
-- ✅ Skills loader module with YAML parsing
-- ✅ 100% test coverage (5/5 tests passing)
-
-### UI Update: ReconX/Kratos Design (2026-05-03)
-- ✅ Navy/Kratos color palette applied
-- ✅ Professional topbar with branding
-- ✅ Clean white sidebar with persona pills
-
-See `CHANGELOG.md` for complete details.
+- [docs/CHANGELOG.md](docs/CHANGELOG.md) — phase log
+- [docs/DESIGN_SYSTEM.md](docs/DESIGN_SYSTEM.md) — colors, components, patterns
+- [docs/QUICK_REFERENCE.md](docs/QUICK_REFERENCE.md) — copy-paste tokens
+- [docs/themis_data_doc.docx](docs/themis_data_doc.docx) — data model reference
+- [skills/aml/](skills/aml/) — AML investigation procedure skills
