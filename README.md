@@ -42,7 +42,6 @@ The Express BFF handles `/api/chat` directly against AWS Bedrock; everything els
 │   └── requirements.txt
 ├── prompts/                    # YAML prompts (supervisor, alert-investigator, ...)
 ├── skills/aml/                 # markdown skill bodies
-├── agents/agents.json          # agent registry
 ├── scripts/                    # one-off scripts (seed.js, seed_db.py)
 └── docs/                       # CHANGELOG, DESIGN_SYSTEM, QUICK_REFERENCE, data doc
 ```

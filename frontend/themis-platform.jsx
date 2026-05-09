@@ -1,5 +1,5 @@
 ﻿import { useState, useRef, useEffect } from "react";
-import AGENTS_REGISTRY from "../agents/agents.json";
+import AGENTS_REGISTRY from "../agent/agents.json";
 
 // Centralized libraries loaded at build time by Vite
 const SKILL_MODULES  = import.meta.glob("../skills/aml/*.md",  { query:"?raw", import:"default", eager:true });
@@ -2773,7 +2773,7 @@ function AgentStudioView(){
         <div>
           <div style={{fontSize:21,fontWeight:800,color:"#0F172A",letterSpacing:"-0.02em"}}>Agent Studio</div>
           <div style={{fontSize:12,color:"#64748B",marginTop:4}}>
-            Registry · {agents.length} agents · loaded from <code style={{background:"#F1F5F9",padding:"1px 6px",borderRadius:3,fontSize:11}}>agents/agents.json</code>
+            Registry · {agents.length} agents · loaded from <code style={{background:"#F1F5F9",padding:"1px 6px",borderRadius:3,fontSize:11}}>agent/agents.json</code>
             <span style={{margin:"0 8px",color:"#CBD5E1"}}>·</span>
             schema {AGENTS_REGISTRY.version}
           </div>
