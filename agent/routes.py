@@ -1,0 +1,491 @@
+"""GET routes for Phase 1.
+
+Response payloads use camelCase keys so they match the existing JSX
+constants (`themis-platform.jsx`) field-for-field. The frontend can
+later swap its hardcoded data for these endpoints with no code changes
+beyond the data source.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from fastapi import APIRouter, HTTPException
+from sqlalchemy import func, select
+from sqlalchemy.orm import selectinload
+
+from db.database import SessionLocal
+from db import models as M
+
+router = APIRouter()
+
+
+# ---------------------------------------------------------------------
+# Serializers — output keys match the JSX constants in themis-platform.jsx
+# ---------------------------------------------------------------------
+
+def _customer_dict(c: M.Customer) -> dict[str, Any]:
+    return {
+        "id": c.id,
+        "name": c.name,
+        "dob": c.dob,
+        "ssn": c.ssn_last4,
+        "phone": c.phone,
+        "email": c.email,
+        "address": c.address,
+        "occupation": c.occupation,
+        "statedIncome": c.stated_income,
+        "customerRisk": c.customer_risk,
+        "customerRiskLevel": c.customer_risk_level,
+        "alertRisk": c.alert_risk,
+        "alertRiskLevel": c.alert_risk_level,
+        "accountType": c.account_type,
+        "opened": c.opened.isoformat() if c.opened else None,
+        "country": c.country,
+        "amlStatus": c.aml_status,
+        "priorAlerts": c.prior_alerts,
+        "nationality": c.nationality,
+        "riskFactors": [
+            {
+                "factor": rf.factor,
+                "weight": float(rf.weight) if rf.weight is not None else None,
+                "direction": rf.direction,
+                "detail": rf.detail,
+            }
+            for rf in (c.risk_factors or [])
+        ],
+    }
+
+
+def _alert_dict(a: M.Alert, *, include_detail: bool = False) -> dict[str, Any]:
+    base = {
+        "id": a.id,
+        "date": a.date.isoformat() if a.date else None,
+        "customerId": a.customer_id,
+        "typologies": [t.typology_name for t in (a.typologies or [])],
+        "txns": a.txns,
+        "flagged": a.flagged,
+        "status": a.status,
+        "confidence": a.confidence,
+        "alertRisk": a.alert_risk,
+        "alertRiskLevel": a.alert_risk_level,
+        "agentDecision": a.agent_decision,
+        "inflow": float(a.inflow) if a.inflow is not None else None,
+        "outflow": float(a.outflow) if a.outflow is not None else None,
+    }
+    if include_detail:
+        base["transactions"] = [_transaction_dict(t) for t in (a.transactions or [])]
+        base["timeline"] = [_timeline_dict(e) for e in (a.timeline or [])]
+        base["network"] = _network_for(a)
+        base["journal"] = [_journal_dict(j) for j in sorted(a.journal_steps or [], key=lambda x: x.n or 0)]
+    return base
+
+
+def _transaction_dict(t: M.Transaction) -> dict[str, Any]:
+    return {
+        "id": t.id,
+        "date": t.date.isoformat() if t.date else None,
+        "time": t.time,
+        "desc": t.descr,
+        "category": t.category,
+        "counterparty": t.counterparty,
+        "cpType": t.cp_type,
+        "amount": float(t.amount) if t.amount is not None else None,
+        "balance": float(t.balance) if t.balance is not None else None,
+        "flagged": bool(t.flagged),
+        "country": t.country,
+        "city": t.city,
+        "notes": t.notes,
+        "riskIndicators": list(t.risk_indicators or []),
+    }
+
+
+def _timeline_dict(e: M.TimelineEntry) -> dict[str, Any]:
+    return {
+        "date": e.date.isoformat() if e.date else None,
+        "inflow": float(e.inflow) if e.inflow is not None else None,
+        "outflow": float(e.outflow) if e.outflow is not None else None,
+    }
+
+
+def _journal_dict(j: M.JournalStep) -> dict[str, Any]:
+    return {
+        "n": j.n,
+        "type": j.step_type,
+        "title": j.title,
+        "tool": j.tool,
+        "status": j.status,
+        "summary": j.summary,
+        "details": j.details,
+    }
+
+
+def _network_for(a: M.Alert) -> dict[str, Any]:
+    return {
+        "nodes": [
+            {
+                "id": n.node_key,
+                "label": n.label,
+                "type": n.node_type,
+                "x": float(n.x) if n.x is not None else None,
+                "y": float(n.y) if n.y is not None else None,
+                "risk": n.risk,
+            }
+            for n in (a.network_nodes or [])
+        ],
+        "edges": [
+            {
+                "id": e.id,
+                "source": e.src_key,
+                "target": e.dst_key,
+                "amount": e.amount,
+                "direction": e.direction,
+            }
+            for e in (a.network_edges or [])
+        ],
+    }
+
+
+def _case_dict(c: M.Case) -> dict[str, Any]:
+    return {
+        "id": c.id,
+        "alertId": c.alert_id,
+        "customerId": c.customer_id,
+        "title": c.title,
+        "status": c.status,
+        "priority": c.priority,
+        "assignee": c.assignee,
+        "created": c.created.isoformat() if c.created else None,
+        "dueDate": c.due_date.isoformat() if c.due_date else None,
+        "stage": c.stage,
+        "sarRequired": bool(c.sar_required),
+        "findings": c.findings,
+        "documents": [
+            {
+                "id": d.id,
+                "type": d.doc_type,
+                "name": d.name,
+                "size": d.size,
+                "uploaded": d.uploaded.isoformat() if d.uploaded else None,
+                "by": d.uploaded_by,
+                "status": d.status,
+            }
+            for d in (c.documents or [])
+        ],
+    }
+
+
+def _sar_dict(s: M.SAR) -> dict[str, Any]:
+    return {
+        "id": s.id,
+        "caseId": s.case_id,
+        "customerId": s.customer_id,
+        "status": s.status,
+        "filingDeadline": s.filing_deadline.isoformat() if s.filing_deadline else None,
+        "preparedBy": s.prepared_by,
+        "reviewedBy": s.reviewed_by,
+        "qcScore": s.qc_score,
+        "missingFields": [m.field for m in (s.missing_fields or [])],
+        "narrative": s.narrative,
+        "auditTrail": [
+            {
+                "ts": a.ts,
+                "user": a.user_name,
+                "action": a.action,
+                "detail": a.detail,
+            }
+            for a in (s.audit_trail or [])
+        ],
+    }
+
+
+def _anomaly_dict(a: M.Anomaly) -> dict[str, Any]:
+    return {
+        "id": a.id,
+        "alertId": a.alert_id,
+        "type": a.anomaly_type,
+        "title": a.title,
+        "desc": a.descr,
+        "accounts": list(a.accounts or []),
+        "detected": a.detected.isoformat() if a.detected else None,
+        "amount": a.amount,
+        "details": a.details,
+        "recommendations": list(a.recommendations or []),
+    }
+
+
+def _screening_dict(r: M.ScreeningResult) -> dict[str, Any]:
+    payload = r.payload or {}
+    out = {
+        "id": r.id,
+        "type": r.screen_type,
+        "entity": r.entity,
+        "entityId": r.entity_id,
+        "entityType": r.entity_type,
+        "match": r.match,
+        "score": r.score,
+        "source": r.source,
+        "details": r.details,
+        "action": r.action,
+    }
+    # Re-attach the per-type sub-payload using the original JSX key.
+    if r.screen_type == "PEP":
+        out["pepDetails"] = payload
+    elif r.screen_type == "Sanctions":
+        out["sanctionDetails"] = payload
+    elif r.screen_type == "Adverse Media":
+        out["mediaDetails"] = payload
+    elif r.screen_type == "Enforcement":
+        out["enforcementDetails"] = payload
+    return out
+
+
+def _model_dict(m: M.Model) -> dict[str, Any]:
+    return {
+        "name": m.name,
+        "type": m.model_type,
+        "accuracy": float(m.accuracy) if m.accuracy is not None else None,
+        "precision": float(m.precision) if m.precision is not None else None,
+        "recall": float(m.recall) if m.recall is not None else None,
+        "fpr": float(m.fpr) if m.fpr is not None else None,
+        "status": m.status,
+        "drift": m.drift,
+        "retrained": m.retrained.isoformat() if m.retrained else None,
+    }
+
+
+def _connector_dict(c: M.Connector) -> dict[str, Any]:
+    return {
+        "id": c.id,
+        "n": c.name,
+        "v": c.vendor,
+        "t": c.conn_type,
+        "s": c.status,
+        "vol": c.volume,
+        "lat": c.latency,
+        "sync": c.last_sync,
+    }
+
+
+# ---------------------------------------------------------------------
+# Routes
+# ---------------------------------------------------------------------
+
+@router.get("/api/alerts")
+async def list_alerts():
+    async with SessionLocal() as s:
+        result = await s.execute(
+            select(M.Alert).options(selectinload(M.Alert.typologies)).order_by(M.Alert.id)
+        )
+        return [_alert_dict(a) for a in result.scalars().all()]
+
+
+@router.get("/api/alerts/{alert_id}")
+async def get_alert(alert_id: str):
+    async with SessionLocal() as s:
+        result = await s.execute(
+            select(M.Alert)
+            .options(
+                selectinload(M.Alert.typologies),
+                selectinload(M.Alert.transactions),
+                selectinload(M.Alert.timeline),
+                selectinload(M.Alert.network_nodes),
+                selectinload(M.Alert.network_edges),
+                selectinload(M.Alert.journal_steps),
+            )
+            .where(M.Alert.id == alert_id)
+        )
+        a = result.scalar_one_or_none()
+        if not a:
+            raise HTTPException(404, f"Alert {alert_id} not found")
+        return _alert_dict(a, include_detail=True)
+
+
+@router.get("/api/cases")
+async def list_cases():
+    async with SessionLocal() as s:
+        result = await s.execute(
+            select(M.Case).options(selectinload(M.Case.documents)).order_by(M.Case.id)
+        )
+        return [_case_dict(c) for c in result.scalars().all()]
+
+
+@router.get("/api/cases/{case_id}")
+async def get_case(case_id: str):
+    async with SessionLocal() as s:
+        result = await s.execute(
+            select(M.Case).options(selectinload(M.Case.documents)).where(M.Case.id == case_id)
+        )
+        c = result.scalar_one_or_none()
+        if not c:
+            raise HTTPException(404, f"Case {case_id} not found")
+        return _case_dict(c)
+
+
+@router.get("/api/customers")
+async def list_customers():
+    async with SessionLocal() as s:
+        result = await s.execute(
+            select(M.Customer).options(selectinload(M.Customer.risk_factors)).order_by(M.Customer.id)
+        )
+        return [_customer_dict(c) for c in result.scalars().all()]
+
+
+@router.get("/api/customers/{customer_id}")
+async def get_customer(customer_id: str):
+    async with SessionLocal() as s:
+        result = await s.execute(
+            select(M.Customer)
+            .options(selectinload(M.Customer.risk_factors))
+            .where(M.Customer.id == customer_id)
+        )
+        c = result.scalar_one_or_none()
+        if not c:
+            raise HTTPException(404, f"Customer {customer_id} not found")
+
+        alerts_result = await s.execute(
+            select(M.Alert)
+            .options(selectinload(M.Alert.typologies))
+            .where(M.Alert.customer_id == customer_id)
+        )
+        cases_result = await s.execute(
+            select(M.Case)
+            .options(selectinload(M.Case.documents))
+            .where(M.Case.customer_id == customer_id)
+        )
+
+        out = _customer_dict(c)
+        out["alerts"] = [_alert_dict(a) for a in alerts_result.scalars().all()]
+        out["cases"] = [_case_dict(cs) for cs in cases_result.scalars().all()]
+        return out
+
+
+@router.get("/api/sars")
+async def list_sars():
+    async with SessionLocal() as s:
+        result = await s.execute(
+            select(M.SAR)
+            .options(
+                selectinload(M.SAR.missing_fields),
+                selectinload(M.SAR.audit_trail),
+            )
+            .order_by(M.SAR.id)
+        )
+        return [_sar_dict(x) for x in result.scalars().all()]
+
+
+@router.get("/api/sars/{sar_id}")
+async def get_sar(sar_id: str):
+    async with SessionLocal() as s:
+        result = await s.execute(
+            select(M.SAR)
+            .options(
+                selectinload(M.SAR.missing_fields),
+                selectinload(M.SAR.audit_trail),
+            )
+            .where(M.SAR.id == sar_id)
+        )
+        x = result.scalar_one_or_none()
+        if not x:
+            raise HTTPException(404, f"SAR {sar_id} not found")
+        return _sar_dict(x)
+
+
+@router.get("/api/anomalies")
+async def list_anomalies():
+    async with SessionLocal() as s:
+        result = await s.execute(select(M.Anomaly).order_by(M.Anomaly.id))
+        return [_anomaly_dict(a) for a in result.scalars().all()]
+
+
+@router.get("/api/anomalies/{anomaly_id}")
+async def get_anomaly(anomaly_id: str):
+    async with SessionLocal() as s:
+        result = await s.execute(select(M.Anomaly).where(M.Anomaly.id == anomaly_id))
+        a = result.scalar_one_or_none()
+        if not a:
+            raise HTTPException(404, f"Anomaly {anomaly_id} not found")
+        return _anomaly_dict(a)
+
+
+@router.get("/api/screening")
+async def list_screening():
+    async with SessionLocal() as s:
+        result = await s.execute(select(M.ScreeningResult).order_by(M.ScreeningResult.id))
+        return [_screening_dict(r) for r in result.scalars().all()]
+
+
+@router.get("/api/network/{entity_id}")
+async def get_network(entity_id: str):
+    """Resolve entity_id to an alert (id matches alert.id) or pick the
+    first alert for a customer."""
+    async with SessionLocal() as s:
+        # Try alert id first
+        result = await s.execute(
+            select(M.Alert)
+            .options(
+                selectinload(M.Alert.network_nodes),
+                selectinload(M.Alert.network_edges),
+            )
+            .where(M.Alert.id == entity_id)
+        )
+        a = result.scalar_one_or_none()
+        if a is None:
+            result = await s.execute(
+                select(M.Alert)
+                .options(
+                    selectinload(M.Alert.network_nodes),
+                    selectinload(M.Alert.network_edges),
+                )
+                .where(M.Alert.customer_id == entity_id)
+                .order_by(M.Alert.id)
+                .limit(1)
+            )
+            a = result.scalar_one_or_none()
+        if a is None:
+            raise HTTPException(404, f"No network found for {entity_id}")
+        return _network_for(a)
+
+
+@router.get("/api/dashboard/summary")
+async def dashboard_summary():
+    async with SessionLocal() as s:
+        alert_status = await s.execute(
+            select(M.Alert.status, func.count()).group_by(M.Alert.status)
+        )
+        case_status = await s.execute(
+            select(M.Case.status, func.count()).group_by(M.Case.status)
+        )
+        sar_count = await s.scalar(select(func.count()).select_from(M.SAR))
+        anomaly_count = await s.scalar(select(func.count()).select_from(M.Anomaly))
+        alert_total = await s.scalar(select(func.count()).select_from(M.Alert))
+        case_total = await s.scalar(select(func.count()).select_from(M.Case))
+        customer_total = await s.scalar(select(func.count()).select_from(M.Customer))
+
+        return {
+            "alerts": {
+                "total": alert_total or 0,
+                "byStatus": {k: v for k, v in alert_status.all()},
+            },
+            "cases": {
+                "total": case_total or 0,
+                "byStatus": {k: v for k, v in case_status.all()},
+            },
+            "sars": {"total": sar_count or 0},
+            "anomalies": {"total": anomaly_count or 0},
+            "customers": {"total": customer_total or 0},
+        }
+
+
+@router.get("/api/models")
+async def list_models():
+    async with SessionLocal() as s:
+        result = await s.execute(select(M.Model).order_by(M.Model.id))
+        return [_model_dict(m) for m in result.scalars().all()]
+
+
+@router.get("/api/connectors")
+async def list_connectors():
+    async with SessionLocal() as s:
+        result = await s.execute(select(M.Connector).order_by(M.Connector.id))
+        return [_connector_dict(c) for c in result.scalars().all()]

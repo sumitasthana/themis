@@ -133,6 +133,52 @@ app.get('/api/agent/skills', async (req, res) => {
   }
 });
 
+// ═══════════════════════════════════════════════════════════════════
+// PHASE 1 DATA PROXY — forward read-only data routes to FastAPI
+// ═══════════════════════════════════════════════════════════════════
+// These prefixes are owned by the Python service; the Express layer
+// just forwards. Order matters: keep this AFTER /api/chat and
+// /api/agent/* so those continue to be handled directly.
+
+const DATA_PROXY_PREFIXES = [
+  '/api/alerts',
+  '/api/cases',
+  '/api/customers',
+  '/api/sars',
+  '/api/anomalies',
+  '/api/screening',
+  '/api/network',
+  '/api/dashboard',
+  '/api/models',
+  '/api/connectors',
+];
+
+app.use(async (req, res, next) => {
+  if (req.method !== 'GET') return next();
+  const matched = DATA_PROXY_PREFIXES.some(
+    p => req.path === p || req.path.startsWith(p + '/')
+  );
+  if (!matched) return next();
+
+  const target = `${AGENT_API_URL}${req.originalUrl}`;
+  try {
+    const upstream = await fetch(target);
+    res.status(upstream.status);
+    upstream.headers.forEach((v, k) => {
+      if (k.toLowerCase() === 'content-encoding') return;
+      res.setHeader(k, v);
+    });
+    const body = await upstream.text();
+    res.send(body);
+  } catch (error) {
+    console.error(`Data proxy error (${target}):`, error.message);
+    res.status(502).json({
+      error: 'Agent API unreachable',
+      message: 'Unable to reach the Python data API. Make sure it is running on port 8000.',
+    });
+  }
+});
+
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log(`Themis API server running on port ${PORT}`);

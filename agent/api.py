@@ -20,6 +20,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from orchestrator import ThemisAgent, run_investigation
+from routes import router as data_router
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -40,6 +41,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Phase 1 data routes (alerts, cases, customers, ...)
+app.include_router(data_router)
 
 # Global agent instance
 agent: Optional[ThemisAgent] = None
