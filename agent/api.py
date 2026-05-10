@@ -66,6 +66,7 @@ class InvestigationRequest(BaseModel):
 
 class InvestigationResponse(BaseModel):
     alert_id: str
+    investigation_id: Optional[str] = None
     status: str
     recommendation: Optional[str]
     confidence: Optional[float]

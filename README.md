@@ -91,16 +91,28 @@ cd agent ; python -m alembic upgrade head ; cd ..
 
 ## Run
 
-```powershell
-# All three services
-.\start-all.ps1
+The `themis` CLI manages all four services. From the repo root:
 
-# …or individually
-python agent/api.py          # FastAPI on :8000
-npm run dev                  # Express + Vite (concurrently)
+```powershell
+# Bring up Postgres (Docker) + FastAPI (:8000) + Express (:3001) + Vite (:5173)
+node themis.mjs up
+
+# In another terminal — populate every alert with a stored investigation
+node themis.mjs warm
+
+# Run a single investigation from the CLI
+node themis.mjs investigate ALERT-0109
+
+# What's currently listening on app ports?
+node themis.mjs status
+
+# Kill everything (Postgres container is left running)
+node themis.mjs down
 ```
 
 Then open <http://localhost:5173>.
+
+`themis up --no-web --no-server` runs only the agent for backend work; pass `--no-postgres-check` to skip the Docker probe.
 
 ## Endpoints
 
