@@ -151,6 +151,8 @@ const DATA_PROXY_PREFIXES = [
   '/api/dashboard',
   '/api/models',
   '/api/connectors',
+  '/api/transactions',
+  '/api/investigations',
 ];
 
 app.use(async (req, res, next) => {

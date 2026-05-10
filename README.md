@@ -110,13 +110,17 @@ Then open <http://localhost:5173>.
 |`POST`|`/api/agent/investigate`|Run agent investigation (DB-backed, persists)|
 |`GET`|`/api/agent/investigate/:id/stream`|SSE progress (10 steps)|
 |`POST`|`/api/cases/:id/sar`|Generate SAR draft via Bedrock + persist|
-|`GET`|`/api/alerts` `…/:id`|Alerts (Phase 1 read API)|
+|`GET`|`/api/alerts` `…/:id`|Alerts (returns transactions/timeline/network/journal in detail)|
 |`GET`|`/api/cases` `…/:id`|Cases|
 |`GET`|`/api/customers` `…/:id`|Customers + linked alerts/cases|
 |`GET`|`/api/sars` `…/:id`|SARs with audit trail|
 |`GET`|`/api/anomalies` `…/:id`|Anomalies|
 |`GET`|`/api/screening`|Screening results|
 |`GET`|`/api/network/:id`|Graph nodes + edges (alert id or customer id)|
+|`GET`|`/api/transactions?flagged=true`|Flat list of transactions across all alerts|
+|`GET`|`/api/investigations`|Past investigation runs (newest first, LIMIT 100)|
+|`GET`|`/api/investigations/:id`|Single run + journal + risk factors|
+|`GET`|`/api/investigations/alert/:alertId`|All runs for a given alert|
 |`GET`|`/api/dashboard/summary`|Aggregated counts|
 |`GET`|`/api/models`|Model governance|
 |`GET`|`/api/connectors`|Data sources|

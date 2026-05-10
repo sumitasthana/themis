@@ -14,6 +14,7 @@ from datetime import date, timedelta
 import os
 import json
 import uuid
+from typing import Any  # noqa: F401  (used by Phase 3 helpers below)
 
 import boto3
 from fastapi import APIRouter, HTTPException
@@ -495,6 +496,107 @@ async def list_connectors():
     async with SessionLocal() as s:
         result = await s.execute(select(M.Connector).order_by(M.Connector.id))
         return [_connector_dict(c) for c in result.scalars().all()]
+
+
+# ---------------------------------------------------------------------
+# Phase 3 — Transactions (flat) + Investigations (audit trail)
+# ---------------------------------------------------------------------
+
+
+@router.get("/api/transactions")
+async def list_transactions(flagged: bool | None = None):
+    """Flat list of transactions across all alerts. Optional ?flagged=true
+    filter. Each row carries `alertId` so callers can navigate back."""
+    async with SessionLocal() as s:
+        stmt = select(M.Transaction)
+        if flagged is True:
+            stmt = stmt.where(M.Transaction.flagged.is_(True))
+        elif flagged is False:
+            stmt = stmt.where(M.Transaction.flagged.is_(False))
+        stmt = stmt.order_by(M.Transaction.date.desc(), M.Transaction.id)
+        rows = (await s.execute(stmt)).scalars().all()
+
+    out = []
+    for t in rows:
+        d = _transaction_dict(t)
+        d["alertId"] = t.alert_id
+        out.append(d)
+    return out
+
+
+def _investigation_summary(inv: M.Investigation) -> dict[str, Any]:
+    return {
+        "id": inv.id,
+        "alertId": inv.alert_id,
+        "startedAt": inv.started_at.isoformat() if inv.started_at else None,
+        "completedAt": inv.completed_at.isoformat() if inv.completed_at else None,
+        "status": inv.status,
+        "recommendation": inv.recommendation,
+        "confidence": float(inv.confidence) if inv.confidence is not None else None,
+    }
+
+
+def _investigation_full(inv: M.Investigation) -> dict[str, Any]:
+    return {
+        **_investigation_summary(inv),
+        "riskScore": inv.risk_score,
+        "narrative": inv.narrative,
+        "journal": [
+            {
+                "step": j.step,
+                "stepName": j.step_name,
+                "ts": j.ts.isoformat() if j.ts else None,
+                "tool": j.tool,
+                "toolInput": j.tool_input,
+                "toolOutput": j.tool_output,
+                "analysis": j.analysis,
+                "findings": j.findings or [],
+                "status": j.status,
+            }
+            for j in sorted(inv.journal or [], key=lambda x: x.step or 0)
+        ],
+        "riskFactors": [
+            {"factor": f.factor, "weight": float(f.weight) if f.weight is not None else None}
+            for f in (inv.factors or [])
+        ],
+    }
+
+
+@router.get("/api/investigations")
+async def list_investigations():
+    async with SessionLocal() as s:
+        rows = (await s.execute(
+            select(M.Investigation).order_by(desc(M.Investigation.started_at)).limit(100)
+        )).scalars().all()
+    return [_investigation_summary(i) for i in rows]
+
+
+@router.get("/api/investigations/alert/{alert_id}")
+async def list_investigations_for_alert(alert_id: str):
+    async with SessionLocal() as s:
+        rows = (await s.execute(
+            select(M.Investigation)
+            .where(M.Investigation.alert_id == alert_id)
+            .order_by(desc(M.Investigation.started_at))
+        )).scalars().all()
+    return [_investigation_summary(i) for i in rows]
+
+
+@router.get("/api/investigations/{inv_id}")
+async def get_investigation(inv_id: str):
+    async with SessionLocal() as s:
+        result = await s.execute(
+            select(M.Investigation)
+            .options(
+                selectinload(M.Investigation.journal),
+                selectinload(M.Investigation.factors),
+            )
+            .where(M.Investigation.id == inv_id)
+        )
+        inv = result.scalar_one_or_none()
+        if not inv:
+            raise HTTPException(404, f"Investigation {inv_id} not found")
+        return _investigation_full(inv)
 
 
 # ---------------------------------------------------------------------
