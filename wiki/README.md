@@ -14,9 +14,16 @@ This wiki documents each major module in the repository, how modules interact, a
 - [Prompts & Skills Module (`prompts/`, `skills/`, `agent/skills_loader.py`, `agent/agents.json`)](./prompts-and-skills-module.md)
 - [Project Docs Module (`docs/`)](./project-docs-module.md)
 
+## Operational Guides
+
+Hands-on guides for running and maintaining the stack — distinct from module walkthroughs above.
+
+- [Database Setup](./database-setup.md) — Postgres via Docker Compose, schema/seed dumps, refresh workflow, troubleshooting.
+
 ## End-to-End Request Flows
 
 ### Product UI Flow
+
 1. React UI (`frontend/`) renders user views and calls `/api/*`.
 2. Vite proxy forwards `/api/*` to Express (`server.js`) during development.
 3. Express handles `/api/chat` directly with AWS Bedrock and proxies all other data and agent endpoints to FastAPI.
@@ -24,6 +31,7 @@ This wiki documents each major module in the repository, how modules interact, a
 5. SQLAlchemy async layer (`agent/db`) reads/writes Postgres.
 
 ### Investigation Flow
+
 1. Client calls `POST /api/agent/investigate` (Express proxy) → FastAPI `POST /api/investigate`.
 2. FastAPI invokes `ThemisAgent.investigate_alert`.
 3. Orchestrator runs 10 sequential steps using DB-backed tools.
