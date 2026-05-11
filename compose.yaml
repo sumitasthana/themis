@@ -1,0 +1,38 @@
+# Themis local infrastructure.
+#
+# Brings up Postgres on host port 5433 (matches DATABASE_URL in .env).
+# On first startup the empty volume triggers Postgres's init-scripts hook,
+# which applies db/schema.sql then db/seed.sql — so a fresh clone gets the
+# full demo dataset (6 alerts, 6 customers, 46 transactions, 7 investigations)
+# with no extra commands.
+#
+# Usage:
+#   docker compose up -d         # start
+#   docker compose down          # stop (keeps data)
+#   docker compose down -v       # stop + wipe data (next 'up' re-seeds)
+
+services:
+  postgres:
+    image: postgres:18
+    container_name: local-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: mysecretpassword
+      POSTGRES_DB: themis_app
+    ports:
+      - "5433:5432"
+    volumes:
+      - themis_pgdata:/var/lib/postgresql
+      # Init scripts run in alphabetical order on first start only.
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+      - ./db/seed.sql:/docker-entrypoint-initdb.d/02_seed.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d themis_app"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  themis_pgdata:
+    name: themis_pgdata

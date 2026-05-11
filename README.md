@@ -72,32 +72,19 @@ DATABASE_URL=postgresql+asyncpg://postgres:mysecretpassword@localhost:5433/themi
 DATABASE_URL_SYNC=postgresql+psycopg2://postgres:mysecretpassword@localhost:5433/themis_app
 ```
 
-### Postgres
+### Postgres + seed data (one-time)
+
+The repo ships a [`compose.yaml`](compose.yaml) that runs Postgres on port 5433 and auto-applies [`db/schema.sql`](db/schema.sql) + [`db/seed.sql`](db/seed.sql) on first startup — so a fresh clone gets the full demo dataset (6 alerts, 6 customers, 46 transactions, 7 stored investigations) with one command:
 
 ```powershell
-docker run -d --name local-postgres `
-  -e POSTGRES_PASSWORD=mysecretpassword `
-  -e POSTGRES_DB=themis_app `
-  -p 5433:5432 `
-  -v themis_pgdata:/var/lib/postgresql `
-  postgres
+docker compose up -d
 ```
 
-### Schema + seed data (one-time)
+`docker compose down` stops the container but keeps the data. `docker compose down -v` wipes the volume so the next `up` re-seeds.
 
-The fastest path on a fresh clone — restores both the schema and the demo dataset (6 alerts, 6 customers, 46 transactions, 7 stored investigations):
+Already have an unseeded `local-postgres` container? Run `powershell -File db\restore.ps1` against it instead. See [`db/README.md`](db/README.md) for refresh and manual-restore instructions.
 
-```powershell
-powershell -File db\restore.ps1
-```
-
-Alternative — empty database, no seed data:
-
-```powershell
-cd agent ; python -m alembic upgrade head ; cd ..
-```
-
-See [`db/README.md`](db/README.md) for refresh and manual-restore instructions.
+Need an empty schema (no seed data)? Skip compose's init scripts and run `cd agent ; python -m alembic upgrade head ; cd ..` against an empty `themis_app` database.
 
 ## Run
 
