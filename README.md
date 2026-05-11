@@ -83,11 +83,21 @@ docker run -d --name local-postgres `
   postgres
 ```
 
-### Schema (one-time)
+### Schema + seed data (one-time)
+
+The fastest path on a fresh clone — restores both the schema and the demo dataset (6 alerts, 6 customers, 46 transactions, 7 stored investigations):
+
+```powershell
+powershell -File db\restore.ps1
+```
+
+Alternative — empty database, no seed data:
 
 ```powershell
 cd agent ; python -m alembic upgrade head ; cd ..
 ```
+
+See [`db/README.md`](db/README.md) for refresh and manual-restore instructions.
 
 ## Run
 
