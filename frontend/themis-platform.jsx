@@ -2,8 +2,36 @@
 import AGENTS_REGISTRY from "../agent/agents.json";
 
 // Centralized libraries loaded at build time by Vite
-const SKILL_MODULES  = import.meta.glob("../skills/aml/*.md",  { query:"?raw", import:"default", eager:true });
-const PROMPT_MODULES = import.meta.glob("../prompts/*.yaml",   { query:"?raw", import:"default", eager:true });
+const SKILL_MODULES    = import.meta.glob("../skills/aml/*.md",                { query:"?raw", import:"default", eager:true });
+const PROMPT_MODULES   = import.meta.glob("../prompts/*.yaml",                 { query:"?raw", import:"default", eager:true });
+const TYPOLOGY_MODULES = import.meta.glob("../skills/aml/typologies/**/*.md",  { query:"?raw", import:"default", eager:true });
+
+// Phase 5 — parse the typology MD tree into a flat list. Keys are the
+// path (`../skills/aml/typologies/cash_based/structuring.md` etc.);
+// values are the raw MD text. No UI view yet — data is just made
+// available here for a follow-up iteration.
+const TYPOLOGIES = Object.entries(TYPOLOGY_MODULES)
+  .filter(([path]) => !path.split("/").pop().startsWith("_"))   // skip _schema.md
+  .map(([path, raw]) => {
+    const fmMatch = /^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/.exec(raw || "");
+    const fm = {};
+    if (fmMatch) {
+      for (const line of fmMatch[1].split("\n")) {
+        const m = /^([a-zA-Z_]+):\s*(.+)$/.exec(line.trim());
+        if (m) fm[m[1]] = m[2].replace(/^["']|["']$/g, "");
+      }
+    }
+    return {
+      path,
+      typologyId: fm.typology_id || "",
+      name: fm.name || "",
+      category: fm.category || "",
+      version: fm.version || "",
+      status: fm.status || "",
+      raw,
+      body: fmMatch ? fmMatch[2] : (raw || ""),
+    };
+  });
 
 // --- Phase 3 API helpers ------------------------------------
 // useApi(path) — fetches GET path on mount and on path change.
@@ -28,7 +56,7 @@ function useApi(path){
 const customersById = (arr)=>Object.fromEntries((arr||[]).map(c=>[c.id,c]));
 
 // ============================================================
-// THEMIS by INCEDO · Complete AML Intelligence Platform
+// THEMIS · Complete AML Intelligence Platform
 // ============================================================
 
 // --- BRAND (Kratos-inspired) --------------------------------
@@ -153,7 +181,7 @@ function DashboardView({onNav}){
                 <span style={{fontFamily:"monospace",fontSize:11,color:"#64748B"}}>{an.amount}</span>
               </div>
               <div style={{fontSize:12,color:"#334155",fontWeight:500,marginTop:3}}>{an.desc}</div>
-              <div style={{fontSize:10,color:NAVY,marginTop:2,fontWeight:600}}>Click for details ?</div>
+              <div style={{fontSize:10,color:NAVY,marginTop:2,fontWeight:600}}>Click for details</div>
             </div>
           ))}
         </div>
@@ -199,7 +227,7 @@ function AnomalyDetailView({anomalyId,onNav}){
   return(
     <div style={{padding:"24px 28px"}}>
       <div style={{fontSize:12,color:"#64748B",marginBottom:14}}>
-        <span style={{cursor:"pointer",color:NAVY,fontWeight:600}} onClick={()=>onNav("dashboard")}>? Dashboard</span>
+        <span style={{cursor:"pointer",color:NAVY,fontWeight:600}} onClick={()=>onNav("dashboard")}>Dashboard</span>
         <span style={{margin:"0 6px"}}>·</span>
         <span style={{fontFamily:"monospace",fontWeight:700}}>{an.id}</span>
       </div>
@@ -259,7 +287,7 @@ function AnomalyDetailView({anomalyId,onNav}){
               <div style={{fontWeight:700,color:"#0F172A",fontSize:13,marginBottom:4}}>{relatedCustomer.name}</div>
               <div style={{fontSize:12,color:"#64748B",marginBottom:4}}>{relatedCustomer.occupation}</div>
               <Badge label={relatedCustomer.customerRiskLevel} color={rc(relatedCustomer.customerRiskLevel)} bg={rb(relatedCustomer.customerRiskLevel)}/><div style={{marginTop:8}}/>
-              <button onClick={()=>onNav("customer-detail",relatedCustomer.id)} style={{width:"100%",marginTop:8,padding:"7px 0",background:NAVY,color:"white",border:"none",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:600}}>View Customer Profile ?</button>
+              <button onClick={()=>onNav("customer-detail",relatedCustomer.id)} style={{width:"100%",marginTop:8,padding:"7px 0",background:NAVY,color:"white",border:"none",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:600}}>View Customer Profile</button>
             </div>
           )}
         </div>
@@ -356,7 +384,7 @@ function TxnModal({txn,onClose}){
             <div style={{fontSize:16,fontWeight:800,color:"#0F172A"}}>Transaction Details</div>
             <div style={{fontFamily:"monospace",fontSize:12,color:"#64748B",marginTop:2}}>{txn.id}</div>
           </div>
-          <button onClick={onClose} style={{background:"#F1F5F9",border:"none",borderRadius:7,width:30,height:30,cursor:"pointer",fontSize:16,color:"#64748B"}}>?</button>
+          <button onClick={onClose} style={{background:"#F1F5F9",border:"none",borderRadius:7,width:30,height:30,cursor:"pointer",fontSize:16,color:"#64748B"}}>×</button>
         </div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:16}}>
           <KV label="Date" value={`${txn.date} ${txn.time}`}/><KV label="Amount" value={<span style={{color:txn.amount>0?"#059669":"#EF4444",fontWeight:700}}>{txn.amount>0?"+":""}{fm(Math.abs(txn.amount))}</span>}/>
@@ -413,7 +441,7 @@ function RiskExplainModal({customer,type,onClose}){
             <div style={{fontSize:16,fontWeight:800,color:"#0F172A"}}> {title}</div>
             <div style={{fontSize:12,color:"#64748B",marginTop:2}}>{customer.name} · {customer.id}</div>
           </div>
-          <button onClick={onClose} style={{background:"#F1F5F9",border:"none",borderRadius:7,width:30,height:30,cursor:"pointer",fontSize:16}}>?</button>
+          <button onClick={onClose} style={{background:"#F1F5F9",border:"none",borderRadius:7,width:30,height:30,cursor:"pointer",fontSize:16}}>×</button>
         </div>
         <div style={{textAlign:"center",padding:"16px 0 20px",background:rb(riskLevel),borderRadius:10,marginBottom:18,border:`2px solid ${rc(riskLevel)}`}}>
           <div style={{fontSize:48,fontWeight:900,fontFamily:"monospace",color:rc(riskLevel)}}>{riskScore}</div>
@@ -473,7 +501,7 @@ function CustomerDetailView({customerId,onNav}){
     <div style={{padding:"24px 28px"}}>
       {riskModal&&<RiskExplainModal customer={customer} type={riskModal} onClose={()=>setRiskModal(null)}/>}
       <div style={{fontSize:12,color:"#64748B",marginBottom:14}}>
-        <span style={{cursor:"pointer",color:NAVY,fontWeight:600}} onClick={()=>onNav("dashboard")}>? Dashboard</span>
+        <span style={{cursor:"pointer",color:NAVY,fontWeight:600}} onClick={()=>onNav("dashboard")}>Dashboard</span>
         <span style={{margin:"0 6px"}}>·</span>
         <span style={{fontFamily:"monospace",fontWeight:700}}>Customer: {customerId}</span>
       </div>
@@ -631,6 +659,109 @@ function normalizeApiJournal(apiJournal){
   });
 }
 
+// Investigation status → colour + label + whether the dot should pulse.
+// idle=grey, running=amber (pulsing), done=green, error=red.
+const INV_STATUS_META={
+  idle:   {color:"#94A3B8",label:"Idle",   pulse:false},
+  running:{color:"#F59E0B",label:"Running",pulse:true },
+  done:   {color:"#10B981",label:"Done",   pulse:false},
+  error:  {color:"#EF4444",label:"Error",  pulse:false},
+};
+
+// Small status light. Always reflects investigation state; pulses while running.
+// Relies on the `pulse-ring` keyframe injected once inside AlertDetailView.
+function StatusDot({status,size=8,withLabel=false}){
+  const m=INV_STATUS_META[status]||INV_STATUS_META.idle;
+  return(
+    <span style={{display:"inline-flex",alignItems:"center",gap:6}}>
+      <span style={{position:"relative",display:"inline-block",width:size,height:size,flexShrink:0}}>
+        {m.pulse&&<span style={{position:"absolute",inset:0,borderRadius:"50%",background:m.color,animation:"pulse-ring 1.4s ease-out infinite"}}/>}
+        <span style={{position:"absolute",inset:0,borderRadius:"50%",background:m.color}}/>
+      </span>
+      {withLabel&&<span style={{fontSize:11,fontWeight:700,color:m.color}}>{m.label}</span>}
+    </span>
+  );
+}
+
+// Parse the orchestrator's plain-text investigation narrative into a title +
+// ordered sections. Section headers are ALL-CAPS lines ending in a colon.
+function parseNarrative(text){
+  const lines=(text||"").split("\n");
+  let title="";
+  const sections=[];
+  let cur=null;
+  for(const raw of lines){
+    const line=raw.trim();
+    if(!line) continue;
+    if(/^[A-Z][A-Z0-9 &/()'-]*:$/.test(line)){
+      cur={heading:line.replace(/:$/,""),lines:[]};
+      sections.push(cur);
+      continue;
+    }
+    if(!cur){ title=title?title+" "+line:line; continue; }
+    cur.lines.push(line);
+  }
+  return {title,sections};
+}
+
+// Classify one content line: a short "Key: value" pair, a bullet, or prose.
+function classifyNarrativeLine(raw){
+  const bulleted=/^[-·•]\s+/.test(raw);
+  const body=raw.replace(/^[-·•]\s+/,"").trim();
+  const kv=body.match(/^([A-Za-z][\w ./%-]{0,38}?):\s+(.+)$/);
+  if(kv) return {type:"kv",k:kv[1].trim(),v:kv[2].trim()};
+  if(bulleted) return {type:"bullet",text:body};
+  return {type:"para",text:body};
+}
+
+// Renders the investigation narrative as a structured report card instead of
+// a raw <pre> dump. Falls back to <pre> if the text has no recognizable sections.
+function NarrativeReport({text}){
+  const {title,sections}=parseNarrative(text);
+  if(!sections.length)
+    return <pre style={{whiteSpace:"pre-wrap",fontSize:12,color:"#334155",margin:0,fontFamily:"inherit",lineHeight:1.6}}>{text}</pre>;
+  return(
+    <div style={{border:"1px solid #E2E8F0",borderRadius:10,overflow:"hidden",background:"white"}}>
+      {title&&(
+        <div style={{background:NAVY,color:"white",padding:"11px 16px",fontSize:12.5,fontWeight:700,letterSpacing:"-.01em"}}>{title}</div>
+      )}
+      <div style={{padding:"2px 16px 8px"}}>
+        {sections.map((sec,si)=>{
+          const parsed=sec.lines.map(classifyNarrativeLine);
+          const kvs=parsed.filter(p=>p.type==="kv");
+          const bullets=parsed.filter(p=>p.type==="bullet");
+          const paras=parsed.filter(p=>p.type==="para").map(p=>p.text);
+          return(
+            <div key={si} style={{padding:"13px 0",borderBottom:si<sections.length-1?"1px solid #F1F5F9":"none"}}>
+              <div style={{fontSize:10,fontWeight:800,letterSpacing:".07em",color:"#94A3B8",textTransform:"uppercase",marginBottom:8}}>{sec.heading}</div>
+              {paras.length>0&&(
+                <div style={{fontSize:12.5,color:"#334155",lineHeight:1.65,marginBottom:(kvs.length||bullets.length)?10:0}}>{paras.join(" ")}</div>
+              )}
+              {bullets.length>0&&(
+                <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:kvs.length?10:0}}>
+                  {bullets.map((b,bi)=>(
+                    <span key={bi} style={{background:"#EFF6FF",border:"1px solid #BFDBFE",color:NAVY,fontSize:11,fontWeight:600,padding:"3px 9px",borderRadius:6}}>{b.text}</span>
+                  ))}
+                </div>
+              )}
+              {kvs.length>0&&(
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(230px,1fr))",gap:"2px 18px"}}>
+                  {kvs.map((kv,ki)=>(
+                    <div key={ki} style={{display:"flex",justifyContent:"space-between",gap:10,fontSize:12,padding:"4px 0",borderBottom:"1px dotted #E2E8F0"}}>
+                      <span style={{color:"#64748B",fontWeight:500}}>{kv.k}</span>
+                      <span style={{color:"#0F172A",fontWeight:700,textAlign:"right"}}>{kv.v}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function AlertDetailView({alertId,onNav}){
   const [tab,setTab]=useState("overview");
   const [txnModal,setTxnModal]=useState(null);
@@ -695,11 +826,12 @@ function AlertDetailView({alertId,onNav}){
 
   return(
     <div style={{padding:"24px 28px"}}>
+      <style>{`@keyframes pulse-ring{0%{transform:scale(1);opacity:.65}70%{transform:scale(2.6);opacity:0}100%{transform:scale(2.6);opacity:0}}`}</style>
       {txnModal&&<TxnModal txn={txnModal} onClose={()=>setTxnModal(null)}/>}
       {riskModal&&<RiskExplainModal customer={customer} type={riskModal} onClose={()=>setRiskModal(null)}/>}
 
       <div style={{fontSize:12,color:"#64748B",marginBottom:14}}>
-        <span style={{cursor:"pointer",color:NAVY,fontWeight:600}} onClick={()=>onNav("alerts")}>? Alerts</span>
+        <span style={{cursor:"pointer",color:NAVY,fontWeight:600}} onClick={()=>onNav("alerts")}>Alerts</span>
         <span style={{margin:"0 6px"}}>·</span>
         <span style={{fontFamily:"monospace",fontWeight:700}}>{alertId}</span>
       </div>
@@ -712,13 +844,15 @@ function AlertDetailView({alertId,onNav}){
           </div>
           <div style={{fontSize:13,color:"#64748B"}}>{customer?.name} · {fd(alert.date)} · Confidence {alert.confidence}%</div>
         </div>
-        <div style={{display:"flex",gap:8}}>
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          {/* Always-visible status light — grey idle, pulsing amber running, green done, red error */}
+          <StatusDot status={liveStatus} size={9} withLabel/>
           <button onClick={startInvestigation} disabled={liveStatus==="running"}
             style={{padding:"7px 14px",background:liveStatus==="running"?"#94A3B8":ORANGE,color:"white",border:"none",borderRadius:7,cursor:liveStatus==="running"?"not-allowed":"pointer",fontWeight:600,fontSize:12}}>
-            {liveStatus==="running"?`Investigating · ${liveSteps.length}/10`:"Run AI Investigation"}
+            {liveStatus==="running"?`Investigating · ${liveSteps.length}/10`:liveStatus==="done"?"Re-run Investigation":"Run AI Investigation"}
           </button>
           {linkedCase
-            ?<button onClick={()=>onNav("case-detail",linkedCase.id)} style={{padding:"7px 14px",background:NAVY,color:"white",border:"none",borderRadius:7,cursor:"pointer",fontWeight:600,fontSize:12}}>View Case ?</button>
+            ?<button onClick={()=>onNav("case-detail",linkedCase.id)} style={{padding:"7px 14px",background:NAVY,color:"white",border:"none",borderRadius:7,cursor:"pointer",fontWeight:600,fontSize:12}}>View Case</button>
             :alert.status==="ESCALATE"&&<button onClick={()=>onNav("cases")} style={{padding:"7px 14px",background:"#EF4444",color:"white",border:"none",borderRadius:7,cursor:"pointer",fontWeight:600,fontSize:12}}>Create Case</button>}
         </div>
       </div>
@@ -788,9 +922,9 @@ function AlertDetailView({alertId,onNav}){
 
               {/* Counterparty Network */}
               <div style={{background:"white",borderRadius:10,padding:18,border:"1px solid #E2E8F0"}}>
-                <div style={{fontSize:14,fontWeight:700,color:"#0F172A",marginBottom:6}}>? Entity / Counterparty Network</div>
+                <div style={{fontSize:14,fontWeight:700,color:"#0F172A",marginBottom:6}}>Entity / Counterparty Network</div>
                 <div style={{display:"flex",gap:10,marginBottom:10,fontSize:11}}>
-                  {[[" Subject",NAVY],[" Entity","#F59E0B"],[" Branch","#10B981"],[" Bank","#8B5CF6"],["? Other","#64748B"]].map(([l,c])=><span key={l} style={{color:c,fontWeight:600}}>{l}</span>)}
+                  {[["Subject",NAVY],["Entity","#F59E0B"],["Branch","#10B981"],["Bank","#8B5CF6"],["Other","#64748B"]].map(([l,c])=><span key={l} style={{color:c,fontWeight:600}}>{l}</span>)}
                   <span style={{marginLeft:"auto",color:"#94A3B8"}}> Inflow   Outflow</span>
                 </div>
                 {netData?<NetworkGraph Data={netData}/>:<div style={{height:200,display:"flex",alignItems:"center",justifyContent:"center",color:"#94A3B8",fontSize:12,background:"#F8FAFC",borderRadius:8}}>Network Data not available for this alert</div>}
@@ -802,12 +936,19 @@ function AlertDetailView({alertId,onNav}){
           {tab==="journal"&&(
             <div>
               {liveStatus!=="idle"&&(
-                <div style={{background:"white",borderRadius:10,padding:18,border:`1px solid ${liveStatus==="error"?"#FCA5A5":"#BFDBFE"}`,marginBottom:14}}>
+                <div style={{background:"white",borderRadius:10,padding:18,border:`1px solid ${liveStatus==="error"?"#FCA5A5":liveStatus==="done"?"#A7F3D0":"#BFDBFE"}`,marginBottom:14}}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-                    <div style={{fontSize:13,fontWeight:700,color:"#0F172A"}}>
-                      Live Investigation · {liveStatus==="running"?`step ${liveSteps.length}/10`:liveStatus==="done"?"complete":"error"}
+                    <div style={{display:"flex",alignItems:"center",gap:8}}>
+                      <StatusDot status={liveStatus} size={9}/>
+                      <div style={{fontSize:13,fontWeight:700,color:"#0F172A"}}>
+                        Live Investigation · {liveStatus==="running"?`step ${liveSteps.length}/10`:liveStatus==="done"?"done":"error"}
+                      </div>
                     </div>
                     {liveResult&&<Badge label={liveResult.recommendation||"DONE"} color={sc(liveResult.recommendation||"")} bg={liveResult.recommendation==="ESCALATE"?"#FEE2E2":"#D1FAE5"}/>}
+                  </div>
+                  {/* Progress bar — fills as steps stream in, turns green on done / red on error */}
+                  <div style={{height:4,background:"#E2E8F0",borderRadius:4,overflow:"hidden",marginBottom:12}}>
+                    <div style={{height:"100%",width:`${Math.min(liveSteps.length/10,1)*100}%`,background:liveStatus==="error"?"#EF4444":liveStatus==="done"?"#10B981":"#F59E0B",transition:"width .3s ease"}}/>
                   </div>
                   {liveSteps.map(s=>(
                     <div key={s.n} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"6px 0",borderBottom:"1px solid #F1F5F9",fontSize:12}}>
@@ -819,7 +960,7 @@ function AlertDetailView({alertId,onNav}){
                     </div>
                   ))}
                   {liveResult&&liveResult.narrative&&(
-                    <pre style={{whiteSpace:"pre-wrap",fontSize:11,color:"#334155",background:"#F8FAFC",padding:10,borderRadius:6,marginTop:10,fontFamily:"inherit"}}>{liveResult.narrative}</pre>
+                    <div style={{marginTop:12}}><NarrativeReport text={liveResult.narrative}/></div>
                   )}
                 </div>
               )}
@@ -871,7 +1012,7 @@ function AlertDetailView({alertId,onNav}){
                   </div>
                 </div>
                 <div style={{background:"#F0FDF4",border:"1px solid #BBF7D0",borderRadius:8,padding:14,marginBottom:16}}>
-                  <div style={{fontSize:12,fontWeight:700,color:"#065F46",marginBottom:6}}>? AI Summary · {alert.status==="CLEAR"?"False Positive":"Escalated for Investigation"}</div>
+                  <div style={{fontSize:12,fontWeight:700,color:"#065F46",marginBottom:6}}>AI Summary · {alert.status==="CLEAR"?"False Positive":"Escalated for Investigation"}</div>
                   <div style={{fontSize:13,color:"#064E3B",lineHeight:1.7}}>
                     {alertId==="ALERT-0100"?"Themis concluded CLEAR (false positive) after required keyword and 1·3 day window analyses showed travel-related lodging/ride-share spend and reciprocal P2P reimbursements among a small stable group. Given payroll-funded account activity, baseline inflows aligning with stated income, consistent merchant lodging/ride-share activity in the flagged windows, and repeated reciprocal P2P reimbursements among a small, stable set of known counterparties with descriptive text indicating reimbursements/hotel splits/tourney fees, the most plausible explanation is benign cost-sharing for travel. The lone residual concern is the repeated use of the phrase 'green light' but representative context and reciprocal reimbursements mitigate that concern. Therefore the agent cleared the alert as a false positive."
                     :"Themis escalated this alert due to high-risk patterns including international wire transfers to elevated-risk jurisdictions, transaction velocity significantly exceeding the 90-day behavioral baseline, and patterns consistent with layering typologies in money laundering. Human investigator review is required before final disposition."}
@@ -961,13 +1102,13 @@ function AlertDetailView({alertId,onNav}){
                   <div style={{background:"#FFF5F5",border:"1px solid #FECACA",borderRadius:8,padding:14}}>
                     <div style={{fontWeight:700,color:"#991B1B",marginBottom:10,fontSize:13}}> Suspicious Indicators</div>
                     {["Residual minor ambiguity: 'green light' keyword in P2P descriptions","No documentary hotel receipts obtained (optional per policy)","Cross-branch same-day deposits pattern matches structuring typology","Transaction velocity 340% above 90-day baseline"].map((f,i)=>(
-                      <div key={i} style={{fontSize:12,color:"#7F1D1D",marginBottom:8,display:"flex",gap:6}}><span>?</span><span>{f}</span></div>
+                      <div key={i} style={{fontSize:12,color:"#7F1D1D",marginBottom:8,display:"flex",gap:6}}><span>•</span><span>{f}</span></div>
                     ))}
                   </div>
                   <div style={{background:"#F0FDF4",border:"1px solid #BBF7D0",borderRadius:8,padding:14}}>
                     <div style={{fontWeight:700,color:"#065F46",marginBottom:10,fontSize:13}}> Mitigating Factors</div>
                     {["KYC fully current · cash-intensive business profile","Payroll ACHs align with $42K stated income","Prior alert AL-0042 dismissed with receipts","'Green light' confirmed as youth soccer tournament","P2P counterparty group stable and reciprocal","No adverse media, sanctions, or PEP flags","Representative windows show no suspicious patterns","Baseline inflow ratio within range for retail business"].map((f,i)=>(
-                      <div key={i} style={{fontSize:12,color:"#064E3B",marginBottom:6,display:"flex",gap:6}}><span>?</span><span>{f}</span></div>
+                      <div key={i} style={{fontSize:12,color:"#064E3B",marginBottom:6,display:"flex",gap:6}}><span>•</span><span>{f}</span></div>
                     ))}
                   </div>
                 </div>
@@ -1010,7 +1151,7 @@ function AlertDetailView({alertId,onNav}){
               <Badge label={customer?.customerRiskLevel} color={rc(customer?.customerRiskLevel)} bg={rb(customer?.customerRiskLevel)}/>
               <button onClick={()=>setRiskModal("customer")} style={{background:"#EFF6FF",border:"none",borderRadius:4,cursor:"pointer",fontSize:11,color:NAVY,padding:"2px 7px",fontWeight:600}}> Why?</button>
             </div>
-            <button onClick={()=>onNav("customer-detail",alert.customerId)} style={{width:"100%",padding:"6px 0",background:"white",color:NAVY,border:`1px solid ${NAVY}`,borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:600}}>View Full Profile ?</button>
+            <button onClick={()=>onNav("customer-detail",alert.customerId)} style={{width:"100%",padding:"6px 0",background:"white",color:NAVY,border:`1px solid ${NAVY}`,borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:600}}>View Full Profile</button>
           </div>
 
           <div style={{background:"white",borderRadius:10,padding:14,border:"1px solid #E2E8F0"}}>
@@ -1020,7 +1161,7 @@ function AlertDetailView({alertId,onNav}){
             ))}
           </div>
           <div style={{background:"#F0FDF4",borderRadius:10,padding:12,border:"1px solid #BBF7D0"}}>
-            <div style={{fontSize:12,fontWeight:700,color:"#065F46",marginBottom:4}}>? SOP Compliance</div>
+            <div style={{fontSize:12,fontWeight:700,color:"#065F46",marginBottom:4}}>SOP Compliance</div>
             <div style={{height:5,background:"#BBF7D0",borderRadius:3}}><div style={{height:"100%",width:"100%",background:"#10B981",borderRadius:3}}/></div>
             <div style={{fontSize:11,color:"#065F46",marginTop:3,fontWeight:600}}>100% Complete</div>
           </div>
@@ -1067,7 +1208,7 @@ function CasesView({onNav}){
               {cs.sarRequired&&<span style={{fontSize:11,background:"#FEF3C7",color:"#92400E",padding:"2px 9px",borderRadius:4,fontWeight:500}}>SAR Required</span>}
               <span style={{fontSize:11,background:"#F8FAFC",color:"#64748B",padding:"2px 9px",borderRadius:4}}>{(cs.documents||[]).length} docs</span>
             </div>
-            <span style={{fontSize:12,color:NAVY,fontWeight:700}}>Open ?</span>
+            <span style={{fontSize:12,color:NAVY,fontWeight:700}}>Open</span>
           </div>
         </div>
       );})}
@@ -1130,7 +1271,7 @@ function CaseDetailView({caseId,onNav}){
   return(
     <div style={{padding:"24px 28px"}}>
       <div style={{fontSize:12,color:"#64748B",marginBottom:14}}>
-        <span style={{cursor:"pointer",color:NAVY,fontWeight:600}} onClick={()=>onNav("cases")}>? Cases</span>
+        <span style={{cursor:"pointer",color:NAVY,fontWeight:600}} onClick={()=>onNav("cases")}>Cases</span>
         <span style={{margin:"0 6px"}}>·</span>
         <span style={{fontFamily:"monospace",fontWeight:700}}>{caseId}</span>
       </div>
@@ -1140,9 +1281,9 @@ function CaseDetailView({caseId,onNav}){
           <div style={{fontSize:13,color:"#64748B",marginTop:4}}>{customer?.name} · {cs.assignee} · Due {fd(cs.dueDate)}</div>
         </div>
         <div style={{display:"flex",gap:8}}>
-          {sar?<button onClick={()=>onNav("sar-detail",sar.id)} style={{padding:"7px 14px",background:"#7C3AED",color:"white",border:"none",borderRadius:7,cursor:"pointer",fontWeight:600,fontSize:12}}>View SAR ?</button>
+          {sar?<button onClick={()=>onNav("sar-detail",sar.id)} style={{padding:"7px 14px",background:"#7C3AED",color:"white",border:"none",borderRadius:7,cursor:"pointer",fontWeight:600,fontSize:12}}>View SAR</button>
             :<button onClick={generateSar} disabled={generatingSar} style={{padding:"7px 14px",background:generatingSar?"#94A3B8":"#7C3AED",color:"white",border:"none",borderRadius:7,cursor:generatingSar?"not-allowed":"pointer",fontWeight:600,fontSize:12}}>{generatingSar?"Generating SAR…":"Generate SAR"}</button>}
-          <button onClick={()=>onNav("alert-detail",cs.alertId)} style={{padding:"7px 14px",background:NAVY,color:"white",border:"none",borderRadius:7,cursor:"pointer",fontWeight:600,fontSize:12}}>View Alert ?</button>
+          <button onClick={()=>onNav("alert-detail",cs.alertId)} style={{padding:"7px 14px",background:NAVY,color:"white",border:"none",borderRadius:7,cursor:"pointer",fontWeight:600,fontSize:12}}>View Alert</button>
         </div>
       </div>
 
@@ -1249,7 +1390,7 @@ function CaseDetailView({caseId,onNav}){
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
                 {[["Name",customer?.name],["Customer ID",customer?.id],["Occupation",customer?.occupation],["Stated Income",`$${customer?.statedIncome?.toLocaleString()}`],["Risk Score",`${customer?.customerRisk} (${customer?.customerRiskLevel})`],["AML Status",customer?.amlStatus]].map(([l,v])=><KV key={l} label={l} value={v}/>)}
               </div>
-              <button onClick={()=>onNav("customer-detail",cs.customerId)} style={{marginTop:12,padding:"6px 14px",background:"white",color:NAVY,border:`1px solid ${NAVY}`,borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:600}}>View Full Profile ?</button>
+              <button onClick={()=>onNav("customer-detail",cs.customerId)} style={{marginTop:12,padding:"6px 14px",background:"white",color:NAVY,border:`1px solid ${NAVY}`,borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:600}}>View Full Profile</button>
             </div>
             <div style={{background:"white",borderRadius:10,padding:18,border:"1px solid #E2E8F0"}}>
               <div style={{fontSize:14,fontWeight:700,color:"#0F172A",marginBottom:12}}> Investigation Checklist</div>
@@ -1325,7 +1466,7 @@ function CaseDetailView({caseId,onNav}){
         <div style={{background:"white",borderRadius:10,padding:18,border:"1px solid #E2E8F0"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
             <div style={{fontSize:14,fontWeight:700,color:"#0F172A"}}> {sar.id}</div>
-            <button onClick={()=>onNav("sar-detail",sar.id)} style={{padding:"6px 12px",background:"#7C3AED",color:"white",border:"none",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:600}}>Open SAR ?</button>
+            <button onClick={()=>onNav("sar-detail",sar.id)} style={{padding:"6px 12px",background:"#7C3AED",color:"white",border:"none",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:600}}>Open SAR</button>
           </div>
           <div style={{background:"#F8FAFC",borderRadius:8,padding:12,fontSize:12,color:"#334155",lineHeight:1.7}}>{sar.narrative||"Narrative pending."}</div>
           <div style={{marginTop:10,display:"flex",gap:14,fontSize:12}}>
@@ -1373,7 +1514,7 @@ function SARListView({onNav}){
                 <div style={{fontSize:14,fontWeight:700,color:"#0F172A"}}>{c?.name} · {sar.caseId}</div>
                 <div style={{fontSize:12,color:"#64748B",marginTop:2}}>By {sar.preparedBy} · Deadline: <strong>{fd(sar.filingDeadline)}</strong></div>
               </div>
-              <div style={{textAlign:"right",fontSize:12}}>{sar.reviewedBy?<div style={{color:"#10B981"}}>? {sar.reviewedBy}</div>:<div style={{color:"#F59E0B"}}>? Awaiting review</div>}</div>
+              <div style={{textAlign:"right",fontSize:12}}>{sar.reviewedBy?<div style={{color:"#10B981"}}>{sar.reviewedBy}</div>:<div style={{color:"#F59E0B"}}>Awaiting review</div>}</div>
             </div>
             <div style={{marginTop:10,fontSize:12,color:"#475569",background:"#F8FAFC",borderRadius:7,padding:10}}>{(sar.narrative||"").substring(0,160)}{sar.narrative?"...":"Narrative pending."}</div>
             {(sar.missingFields||[]).length>0&&<div style={{marginTop:8,fontSize:11,color:"#92400E",background:"#FEF3C7",padding:"5px 10px",borderRadius:5}}> Missing: {sar.missingFields.join(" · ")}</div>}
@@ -1402,7 +1543,7 @@ function SARDetailView({sarId,onNav}){
   const alert=alertDetail;
   const txns=alertDetail?.transactions||[];
 
-  const defaultNarrative=`SUSPICIOUS ACTIVITY REPORT · ${sar.id}\nGenerated by Themis AI · Incedo\n?\n\nSECTION 1 · SUBJECT INFORMATION\n?\nName: ${customer?.name}\nAddress: ${customer?.address}\nDate of Birth: ${customer?.dob}\nOccupation: ${customer?.occupation}\nAccount Number: ${customer?.id}\nSSN (last 4): ${customer?.ssn}\n\nSECTION 2 · SUMMARY OF SUSPICIOUS ACTIVITY\n?\n${customer?.name} engaged in suspicious financial activity between ${fd(alert?.date||"")} and the present that is consistent with ${alert?.typologies[0]||""} and potential money laundering. Total suspicious transaction volume: ${fm(alert?.inflow||0)}.\n\nSECTION 3 · TIMELINE OF TRANSACTIONS\n?\n${txns.filter(t=>t.flagged).map(t=>`· ${t.date} ${t.time}: ${t.desc} · ${fm(Math.abs(t.amount))} via ${t.counterparty} [${t.country}]`).join("\n")}\n\nSECTION 4 · REASON FOR SUSPICION\n?\n1. Transaction velocity significantly exceeded 90-day behavioral baseline\n2. Multiple deposits structured to avoid CTR reporting thresholds ($10,000)\n3. International wire transfers to high-risk jurisdictions without apparent documented business purpose\n4. Counterparty network analysis revealed linked accounts with limited transaction history\n5. Income verification ratio ${Math.round(((alert?.inflow||0)*4)/((customer?.statedIncome||1))*100)}% of stated annual income\n6. Pattern consistent with placement and layering typologies per FinCEN guidance\n\nSECTION 5 · LAW ENFORCEMENT CONTACT\n?\nNo current law enforcement contact. Institution has not disclosed this SAR to the subject.\n\nSECTION 6 · DISPOSITION\n?\nThemis AI recommends SAR submission to FinCEN.\nNo customer notification per 31 USC 5318(g)(2).\nFiling deadline: ${fd(sar.filingDeadline)}\nPrepared by: ${sar.preparedBy}\nReviewing officer: ${sar.reviewedBy||"Pending"}`;
+  const defaultNarrative=`SUSPICIOUS ACTIVITY REPORT · ${sar.id}\nGenerated by Themis AI\n\nSECTION 1 · SUBJECT INFORMATION\nName: ${customer?.name}\nAddress: ${customer?.address}\nDate of Birth: ${customer?.dob}\nOccupation: ${customer?.occupation}\nAccount Number: ${customer?.id}\nSSN (last 4): ${customer?.ssn}\n\nSECTION 2 · SUMMARY OF SUSPICIOUS ACTIVITY\n${customer?.name} engaged in suspicious financial activity between ${fd(alert?.date||"")} and the present that is consistent with ${alert?.typologies[0]||""} and potential money laundering. Total suspicious transaction volume: ${fm(alert?.inflow||0)}.\n\nSECTION 3 · TIMELINE OF TRANSACTIONS\n${txns.filter(t=>t.flagged).map(t=>`· ${t.date} ${t.time}: ${t.desc} · ${fm(Math.abs(t.amount))} via ${t.counterparty} [${t.country}]`).join("\n")}\n\nSECTION 4 · REASON FOR SUSPICION\n1. Transaction velocity significantly exceeded 90-day behavioral baseline\n2. Multiple deposits structured to avoid CTR reporting thresholds ($10,000)\n3. International wire transfers to high-risk jurisdictions without apparent documented business purpose\n4. Counterparty network analysis revealed linked accounts with limited transaction history\n5. Income verification ratio ${Math.round(((alert?.inflow||0)*4)/((customer?.statedIncome||1))*100)}% of stated annual income\n6. Pattern consistent with placement and layering typologies per FinCEN guidance\n\nSECTION 5 · LAW ENFORCEMENT CONTACT\nNo current law enforcement contact. Institution has not disclosed this SAR to the subject.\n\nSECTION 6 · DISPOSITION\nThemis AI recommends SAR submission to FinCEN.\nNo customer notification per 31 USC 5318(g)(2).\nFiling deadline: ${fd(sar.filingDeadline)}\nPrepared by: ${sar.preparedBy}\nReviewing officer: ${sar.reviewedBy||"Pending"}`;
 
   if(!narrative&&defaultNarrative)setNarrative(defaultNarrative);
 
@@ -1415,7 +1556,7 @@ function SARDetailView({sarId,onNav}){
   return(
     <div style={{padding:"24px 28px"}}>
       <div style={{fontSize:12,color:"#64748B",marginBottom:14}}>
-        <span style={{cursor:"pointer",color:NAVY,fontWeight:600}} onClick={()=>onNav("sar-list")}>? SARs</span>
+        <span style={{cursor:"pointer",color:NAVY,fontWeight:600}} onClick={()=>onNav("sar-list")}>SARs</span>
         <span style={{margin:"0 6px"}}>·</span>
         <span style={{fontFamily:"monospace",fontWeight:700}}>{sarId}</span>
       </div>
@@ -1425,8 +1566,8 @@ function SARDetailView({sarId,onNav}){
           <div style={{fontSize:13,color:"#64748B",marginTop:4}}>{customer?.name} · {sar.preparedBy}</div>
         </div>
         <div style={{display:"flex",gap:8}}>
-          <button onClick={()=>setQcDone(true)} style={{padding:"7px 14px",background:qcDone?"#10B981":"#F59E0B",color:"white",border:"none",borderRadius:7,cursor:"pointer",fontWeight:600,fontSize:12}}>{qcDone?"? QC Passed":"Run QC Check"}</button>
-          <button style={{padding:"7px 14px",background:"#7C3AED",color:"white",border:"none",borderRadius:7,cursor:"pointer",fontWeight:600,fontSize:12}}>Submit SAR ?</button>
+          <button onClick={()=>setQcDone(true)} style={{padding:"7px 14px",background:qcDone?"#10B981":"#F59E0B",color:"white",border:"none",borderRadius:7,cursor:"pointer",fontWeight:600,fontSize:12}}>{qcDone?"QC Passed":"Run QC Check"}</button>
+          <button style={{padding:"7px 14px",background:"#7C3AED",color:"white",border:"none",borderRadius:7,cursor:"pointer",fontWeight:600,fontSize:12}}>Submit SAR</button>
         </div>
       </div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 290px",gap:18}}>
@@ -1452,7 +1593,7 @@ function SARDetailView({sarId,onNav}){
 
           {qcDone&&(
             <div style={{background:"#F0FDF4",borderRadius:10,padding:16,border:"1px solid #BBF7D0",marginBottom:14}}>
-              <div style={{fontSize:13,fontWeight:700,color:"#065F46",marginBottom:10}}>? QC Review Complete</div>
+              <div style={{fontSize:13,fontWeight:700,color:"#065F46",marginBottom:10}}>QC Review Complete</div>
               {["All required sections populated","Narrative clarity: PASS","Regulatory formatting: PASS","Transaction Data consistency: PASS","Income verification ratio included: PASS","Timeliness check: PASS"].map((item,i)=>(
                 <div key={i} style={{fontSize:12,color:"#064E3B",marginBottom:5}}>? {item}</div>
               ))}
@@ -1508,7 +1649,7 @@ function SARDetailView({sarId,onNav}){
             <div style={{fontSize:11,fontWeight:700,color:"#64748B",marginBottom:8}}>SAR SECTIONS</div>
             {["1. Subject Information","2. Summary of Activity","3. Transaction Timeline","4. Reason for Suspicion","5. Law Enforcement Contact","6. Disposition"].map(s=>(
               <div key={s} style={{display:"flex",gap:6,alignItems:"center",fontSize:11,color:"#334155",padding:"4px 0",borderBottom:"1px solid #F8FAFC"}}>
-                <span style={{color:"#10B981"}}>?</span>{s}
+                <span style={{color:"#10B981"}}>•</span>{s}
               </div>
             ))}
           </div>
@@ -1529,7 +1670,7 @@ function ScreeningDetailModal({result,onClose}){
             <div style={{fontSize:16,fontWeight:800,color:"#0F172A"}}>{result.type} · {result.entity}</div>
             <div style={{fontSize:12,color:"#64748B",marginTop:2}}>{result.source}</div>
           </div>
-          <button onClick={onClose} style={{background:"#F1F5F9",border:"none",borderRadius:7,width:30,height:30,cursor:"pointer",fontSize:16,color:"#64748B"}}>?</button>
+          <button onClick={onClose} style={{background:"#F1F5F9",border:"none",borderRadius:7,width:30,height:30,cursor:"pointer",fontSize:16,color:"#64748B"}}>×</button>
         </div>
 
         {/* SANCTIONS */}
@@ -1537,7 +1678,7 @@ function ScreeningDetailModal({result,onClose}){
           <div>
             <div style={{fontSize:13,fontWeight:700,color:"#0F172A",marginBottom:10}}>Sanctions Screening Results</div>
             {result.sanctionDetails.hits.length===0?(
-              <div style={{background:"#F0FDF4",borderRadius:8,padding:14,border:"1px solid #BBF7D0",fontSize:13,color:"#065F46"}}>? No sanctions matches found. Entity cleared against {result.source}.<br/><span style={{fontSize:11,color:"#64748B"}}>Last checked: {result.sanctionDetails.lastChecked}</span></div>
+              <div style={{background:"#F0FDF4",borderRadius:8,padding:14,border:"1px solid #BBF7D0",fontSize:13,color:"#065F46"}}>No sanctions matches found. Entity cleared against {result.source}.<br/><span style={{fontSize:11,color:"#64748B"}}>Last checked: {result.sanctionDetails.lastChecked}</span></div>
             ):result.sanctionDetails.hits.map((hit,i)=>(
               <div key={i} style={{marginBottom:12,border:"1px solid #FECACA",borderRadius:8,padding:14,background:"#FFF5F5"}}>
                 <div style={{fontSize:12,fontWeight:700,color:"#991B1B",marginBottom:6}}>{hit.program}</div>
@@ -1704,7 +1845,7 @@ function ScreeningView(){
               <button onClick={()=>setRunNew(false)} style={{padding:"8px 12px",background:"white",color:"#64748B",border:"1px solid #E2E8F0",borderRadius:7,cursor:"pointer",fontSize:12}}>Cancel</button>
             </div>
           </div>
-         COMPLETE: {runResults.length>0&&<div style={{marginTop:12,padding:10,background:"#D1FAE5",borderRadius:7,fontSize:12,color:"#065F46"}}>?COMPLETE: {runResults.length} screening(s) completed. Results appear in the table below.</div>}
+          {runResults.length>0&&<div style={{marginTop:12,padding:10,background:"#D1FAE5",borderRadius:7,fontSize:12,color:"#065F46"}}>COMPLETE: {runResults.length} screening(s) completed. Results appear in the table below.</div>}
         </div>
       )}
 
@@ -1913,7 +2054,7 @@ function NetworkView(){
       </div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
         <div style={{background:"white",borderRadius:10,padding:16,border:"1px solid #E2E8F0"}}>
-          <div style={{fontSize:13,fontWeight:700,color:"#0F172A",marginBottom:10}}>? ML Anomaly Signals</div>
+          <div style={{fontSize:13,fontWeight:700,color:"#0F172A",marginBottom:10}}>ML Anomaly Signals</div>
           {(anomalies||[]).map(an=>(
             <div key={an.id} style={{padding:"8px 0",borderBottom:"1px solid #F8FAFC",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
               <div style={{fontSize:12,color:"#334155"}}>{an.title}</div>
@@ -1979,7 +2120,7 @@ function ModelGovernanceView(){
               <span style={{color:"#64748B"}}>{l}</span><span style={{fontWeight:700,color:c,fontFamily:"monospace"}}>{v}</span>
             </div>
           ))}
-          <div style={{marginTop:12,padding:10,background:"#F0FDF4",borderRadius:7,border:"1px solid #BBF7D0",fontSize:12,color:"#064E3B"}}>? Model governance documentation is regulator-ready. Last audit: Nov 30, 2025.</div>
+          <div style={{marginTop:12,padding:10,background:"#F0FDF4",borderRadius:7,border:"1px solid #BBF7D0",fontSize:12,color:"#064E3B"}}>Model governance documentation is regulator-ready. Last audit: Nov 30, 2025.</div>
         </div>
       </div>
     </div>
@@ -2077,7 +2218,7 @@ function TransactionsView({onNav}){
 
 // --- THEMIS CHAT ----------------------------------------------
 function ThemisChat({onClose,view}){
-  const [msgs,setMsgs]=useState([{role:"ai",text:`Hello! I'm **Themis**, your Incedo AI compliance copilot. I'm viewing the **${view}** screen with you. How can I help?`}]);
+  const [msgs,setMsgs]=useState([{role:"ai",text:`Hello! I'm **Themis**, your AI compliance copilot. I'm viewing the **${view}** screen with you. How can I help?`}]);
   const [input,setInput]=useState("");
   const [typing,setTyping]=useState(false);
   const bottom=useRef(null);
@@ -2109,10 +2250,10 @@ function ThemisChat({onClose,view}){
         <div style={{width:34,height:34,borderRadius:9,background:"rgba(255,255,255,0.15)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:17}}></div>
         <div style={{flex:1}}>
           <div style={{fontWeight:800,color:"white",fontSize:14}}>Themis AI Copilot</div>
-          <div style={{fontSize:10,color:"rgba(255,255,255,0.6)"}}>by Incedo · {view}</div>
+          <div style={{fontSize:10,color:"rgba(255,255,255,0.6)"}}>{view}</div>
         </div>
         <Pill label="Live" color="#22C55E" bg="transparent"/>
-        <button onClick={onClose} style={{background:"rgba(255,255,255,0.12)",border:"none",color:"white",cursor:"pointer",fontSize:15,width:26,height:26,borderRadius:5,display:"flex",alignItems:"center",justifyContent:"center"}}>?</button>
+        <button onClick={onClose} style={{background:"rgba(255,255,255,0.12)",border:"none",color:"white",cursor:"pointer",fontSize:15,width:26,height:26,borderRadius:5,display:"flex",alignItems:"center",justifyContent:"center"}}>×</button>
       </div>
       <div style={{flex:1,overflowY:"auto",padding:12,display:"flex",flexDirection:"column",gap:10,background:"#F8FAFC"}}>
         {msgs.map((msg,i)=>(
@@ -2132,7 +2273,7 @@ function ThemisChat({onClose,view}){
       </div>}
       <div style={{padding:"8px 10px",borderTop:"1px solid #E2E8F0",display:"flex",gap:7,background:"white"}}>
         <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&send(input)} placeholder="Ask Themis anything·" style={{flex:1,padding:"7px 10px",borderRadius:7,border:"1px solid #E2E8F0",fontSize:12,color:"#334155",outline:"none",background:"#F8FAFC"}}/>
-        <button onClick={()=>send(input)} style={{padding:"7px 12px",background:NAVY,color:"white",border:"none",borderRadius:7,cursor:"pointer",fontWeight:700,fontSize:13}}>?</button>
+        <button onClick={()=>send(input)} style={{padding:"7px 12px",background:NAVY,color:"white",border:"none",borderRadius:7,cursor:"pointer",fontWeight:700,fontSize:13}}>→</button>
       </div>
       <style>{`@keyframes bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}`}</style>
     </div>
@@ -2357,8 +2498,16 @@ function MarkdownBlock({text}){
       continue;
     }
     if(line.trim()===""){out.push(<div key={`b${i}`} style={{height:6}}/>);i++;continue;}
-    out.push(<div key={`p${i}`} style={{fontSize:12,color:"#334155",lineHeight:1.7,margin:"3px 0"}}>{renderInline(line)}</div>);
-    i++;
+    // Coalesce consecutive prose lines into a single paragraph so
+    // hard-wrapped source MD reflows naturally to the container width.
+    // A paragraph ends at a blank line, fence, header, list, or numbered list.
+    const buf=[line];i++;
+    while(i<lines.length){
+      const next=lines[i];
+      if(next.trim()===""||/^```/.test(next)||/^(#{1,4})\s+/.test(next)||/^[-*]\s+/.test(next)||/^\d+\.\s+/.test(next)) break;
+      buf.push(next);i++;
+    }
+    out.push(<p key={`p${i}`} style={{fontSize:13,color:"#334155",lineHeight:1.7,margin:"6px 0"}}>{renderInline(buf.join(" "))}</p>);
   }
   return<div>{out}</div>;
 }
@@ -2592,6 +2741,378 @@ function SkillsLibraryView(){
   );
 }
 
+// --- TYPOLOGY WORKBENCH ---------------------------------------
+// Two-tab view: Library (active typologies) + Review Queue (pending candidates).
+// Top toolbar runs the harvester foreground and promotes approved
+// candidates. Approval requires 2 distinct reviewers — the dropdown
+// gates which name is attached to each click.
+function TypologyWorkbenchView(){
+  const [tab,setTab]=useState("library");
+  const [busy,setBusy]=useState(null); // "harvest" | "promote" | null
+  const [flash,setFlash]=useState(null); // {kind:"ok"|"err", msg:string}
+  // Bump this to refetch lists after writes.
+  const [tick,setTick]=useState(0);
+
+  const lib=useApi(`/api/typologies?v=${tick}`);
+  const queue=useApi(`/api/typologies/candidates?v=${tick}`);
+
+  const refresh=()=>setTick(t=>t+1);
+
+  async function runHarvest(){
+    setBusy("harvest"); setFlash(null);
+    try{
+      const r=await fetch("/api/typologies/harvest",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({extractor:"fixture"})});
+      const j=await r.json();
+      if(!r.ok) throw new Error(j.detail||r.statusText);
+      setFlash({kind:"ok",msg:`Harvest complete — ${j.inserted} candidate(s) added, ${j.duplicates} duplicate(s) skipped.`});
+      refresh();
+    }catch(e){ setFlash({kind:"err",msg:`Harvest failed: ${e.message}`}); }
+    finally{ setBusy(null); }
+  }
+
+  async function runPromote(){
+    setBusy("promote"); setFlash(null);
+    try{
+      const r=await fetch("/api/typologies/promote",{method:"POST"});
+      const j=await r.json();
+      if(!r.ok) throw new Error(j.detail||r.statusText);
+      setFlash({kind:"ok",msg:`Promotion complete — ${j.promoted} promoted, ${j.failed} failed.`});
+      refresh();
+    }catch(e){ setFlash({kind:"err",msg:`Promote failed: ${e.message}`}); }
+    finally{ setBusy(null); }
+  }
+
+  const TabBtn=({id,label,count})=>(
+    <button onClick={()=>setTab(id)}
+      style={{padding:"6px 14px",borderRadius:6,border:"1px solid",cursor:"pointer",fontSize:12,fontWeight:600,
+        borderColor:tab===id?NAVY:"#E2E8F0",background:tab===id?NAVY:"white",color:tab===id?"white":"#475569"}}>
+      {label}{count!==undefined?<span style={{marginLeft:6,fontSize:10,opacity:0.85}}>({count})</span>:null}
+    </button>
+  );
+
+  return(
+    <div style={{padding:"24px 28px"}}>
+      <div style={{fontSize:12,color:"#64748B",marginBottom:14,letterSpacing:"0.02em"}}>Platform Workbench</div>
+
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
+        <div>
+          <div style={{fontSize:21,fontWeight:800,color:"#0F172A",letterSpacing:"-0.02em"}}>Typology</div>
+          <div style={{fontSize:12,color:"#64748B",marginTop:4}}>
+            Live registry: <code style={{background:"#F1F5F9",padding:"1px 6px",borderRadius:3,fontSize:11}}>skills/aml/typologies/&lt;category&gt;/*.md</code> · Review pipeline backed by the harvester
+          </div>
+        </div>
+        <div style={{display:"flex",gap:8}}>
+          <button onClick={runHarvest} disabled={!!busy}
+            style={{padding:"8px 16px",borderRadius:6,border:`1px solid ${NAVY}`,background:busy==="harvest"?"#475569":NAVY,color:"white",fontSize:12,fontWeight:700,cursor:busy?"wait":"pointer",letterSpacing:"0.04em"}}>
+            {busy==="harvest"?"HARVESTING…":"RUN HARVESTER"}
+          </button>
+          <button onClick={runPromote} disabled={!!busy}
+            style={{padding:"8px 16px",borderRadius:6,border:"1px solid #15803D",background:busy==="promote"?"#475569":"#15803D",color:"white",fontSize:12,fontWeight:700,cursor:busy?"wait":"pointer",letterSpacing:"0.04em"}}>
+            {busy==="promote"?"PROMOTING…":"PROMOTE APPROVED"}
+          </button>
+        </div>
+      </div>
+
+      {flash&&(
+        <div style={{padding:"8px 12px",borderRadius:6,fontSize:12,marginBottom:12,
+          background:flash.kind==="ok"?"#DCFCE7":"#FEE2E2",
+          color:flash.kind==="ok"?"#15803D":"#B91C1C",
+          border:`1px solid ${flash.kind==="ok"?"#86EFAC":"#FCA5A5"}`}}>
+          {flash.msg}
+        </div>
+      )}
+
+      <div style={{display:"flex",gap:8,marginBottom:14}}>
+        <TabBtn id="library" label="Library" count={lib.data?.length}/>
+        <TabBtn id="queue"   label="Review Queue" count={queue.data?.length}/>
+      </div>
+
+      {tab==="library"  && <TypologyLibraryPanel rows={lib.data||[]} loading={lib.loading}/>}
+      {tab==="queue"    && <TypologyReviewPanel rows={queue.data||[]} loading={queue.loading} onChanged={refresh}/>}
+    </div>
+  );
+}
+
+function TypologyLibraryPanel({rows,loading}){
+  const [selected,setSelected]=useState(null);
+  const sel=rows.find(r=>r.typologyId===selected) || rows[0];
+  const detail=useApi(sel?`/api/typologies/${sel.typologyId}`:null);
+
+  if(loading) return <div style={{padding:16,color:"#64748B",fontSize:12}}>Loading typology registry…</div>;
+  if(rows.length===0) return <div style={{padding:16,color:"#64748B",fontSize:12}}>No active typologies. Run the harvester and promote approved candidates to populate the library.</div>;
+
+  return(
+    <div style={{display:"grid",gridTemplateColumns:"300px 1fr",gap:16}}>
+      <div style={{background:"white",borderRadius:10,border:"1px solid #E2E8F0",overflow:"hidden",alignSelf:"flex-start"}}>
+        <div style={{padding:"10px 14px",borderBottom:"1px solid #E2E8F0",fontSize:11,fontWeight:700,color:"#64748B",letterSpacing:"0.05em",background:"#F8FAFC"}}>ACTIVE TYPOLOGIES</div>
+        {rows.map(r=>{
+          const Active=r.typologyId===(sel?.typologyId);
+          return(
+            <button key={r.typologyId} onClick={()=>setSelected(r.typologyId)}
+              style={{width:"100%",textAlign:"left",padding:"10px 14px",borderBottom:"1px solid #F1F5F9",border:"none",borderLeft:Active?`3px solid ${NAVY}`:"3px solid transparent",background:Active?"#EFF6FF":"white",cursor:"pointer"}}>
+              <div style={{fontSize:12,fontWeight:700,color:"#0F172A"}}>{r.name}</div>
+              <div style={{fontSize:10,color:"#94A3B8",marginTop:2,fontFamily:"monospace"}}>{r.typologyId} · v{r.currentVersion} · {r.category}</div>
+            </button>
+          );
+        })}
+      </div>
+
+      {sel&&(
+        <TypologyDetailCard sel={sel} detail={detail}/>
+      )}
+    </div>
+  );
+}
+
+// Minimal frontmatter extractor — pulls list-valued fields (risk_indicators,
+// ml_stage) and the sources block. Tolerates the YAML we emit; not a full parser.
+function parseTypologyFrontmatter(text){
+  const m=/^---\s*\n([\s\S]*?)\n---\s*\n/.exec(text||"");
+  if(!m) return {risk_indicators:[],ml_stage:[],sources:[],last_reviewed:null};
+  const fm=m[1];
+  const lines=fm.split("\n");
+  const out={risk_indicators:[],ml_stage:[],sources:[],last_reviewed:null};
+  for(let i=0;i<lines.length;i++){
+    const ln=lines[i];
+    let mm;
+    if((mm=/^risk_indicators:\s*$/.exec(ln))){
+      while(++i<lines.length && /^\s+-\s+/.test(lines[i])) out.risk_indicators.push(lines[i].replace(/^\s+-\s+/,"").trim());
+      i--; continue;
+    }
+    if((mm=/^ml_stage:\s*\[(.*)\]\s*$/.exec(ln))){
+      out.ml_stage=mm[1].split(",").map(s=>s.trim()).filter(Boolean); continue;
+    }
+    if((mm=/^last_reviewed:\s*(\S+)\s*$/.exec(ln))){ out.last_reviewed=mm[1]; continue; }
+    if((mm=/^sources:\s*$/.exec(ln))){
+      let cur=null;
+      while(++i<lines.length && /^\s+(-|\s)/.test(lines[i])){
+        const item=/^\s+-\s+org:\s*(.+)$/.exec(lines[i]);
+        const cite=/^\s+citation:\s*"?([^"]+)"?\s*$/.exec(lines[i]);
+        const typ=/^\s+type:\s*(.+)$/.exec(lines[i]);
+        if(item){ if(cur) out.sources.push(cur); cur={org:item[1].trim(),citation:"",type:""}; }
+        else if(cite&&cur) cur.citation=cite[1].trim();
+        else if(typ&&cur)  cur.type=typ[1].trim();
+      }
+      if(cur) out.sources.push(cur);
+      i--; continue;
+    }
+  }
+  return out;
+}
+
+function TypologyDetailCard({sel,detail}){
+  const mdBody=detail.data?.mdBody||"";
+  const fm=useMemo(()=>parseTypologyFrontmatter(mdBody),[mdBody]);
+  const prose=mdBody.split(/^---\s*\n[\s\S]*?\n---\s*\n/m).slice(-1)[0];
+  const approvers=detail.data?.approvedBy||[];
+
+  const Pill2=({label,value,color})=>(
+    <div style={{display:"flex",alignItems:"center",gap:6,padding:"4px 10px",background:"#F8FAFC",border:"1px solid #E2E8F0",borderRadius:5}}>
+      <span style={{fontSize:9,fontWeight:700,letterSpacing:"0.06em",color:"#64748B"}}>{label}</span>
+      <span style={{fontSize:11,fontWeight:600,color:color||"#0F172A",fontFamily:"monospace"}}>{value}</span>
+    </div>
+  );
+
+  return(
+    <div style={{background:"white",borderRadius:10,padding:"20px 24px",border:"1px solid #E2E8F0",minHeight:480}}>
+      {/* Header: title + ACTIVE pill */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontSize:22,fontWeight:800,color:"#0F172A",letterSpacing:"-0.01em"}}>{sel.name}</div>
+          <div style={{fontSize:11,color:"#94A3B8",fontFamily:"monospace",marginTop:4}}>{sel.mdPath}</div>
+        </div>
+        <span style={{fontSize:10,fontWeight:700,letterSpacing:"0.08em",color:"#065F46",background:"#D1FAE5",padding:"4px 10px",borderRadius:4,whiteSpace:"nowrap"}}>{sel.status?.toUpperCase()}</span>
+      </div>
+
+      {/* Metadata strip — horizontal pills */}
+      <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:18,paddingBottom:16,borderBottom:"1px solid #F1F5F9"}}>
+        <Pill2 label="ID" value={sel.typologyId}/>
+        <Pill2 label="VER" value={`v${sel.currentVersion}`}/>
+        <Pill2 label="CATEGORY" value={sel.category}/>
+        {fm.ml_stage.length>0&&<Pill2 label="ML STAGE" value={fm.ml_stage.join(" + ")}/>}
+        {fm.last_reviewed&&<Pill2 label="REVIEWED" value={fm.last_reviewed}/>}
+        <Pill2 label="SHA256" value={`${(sel.mdSha256||"").slice(0,12)}…`}/>
+      </div>
+
+      {detail.loading&&<div style={{color:"#94A3B8",fontSize:12}}>Loading typology body…</div>}
+
+      {!detail.loading&&(
+        <div style={{display:"grid",gridTemplateColumns:"minmax(0, 1.6fr) minmax(0, 1fr)",gap:24}}>
+          {/* Prose body */}
+          <div style={{maxHeight:560,overflowY:"auto",paddingRight:8}}>
+            <MarkdownBlock text={prose}/>
+          </div>
+
+          {/* Structured side card */}
+          <div style={{display:"flex",flexDirection:"column",gap:14}}>
+            {fm.risk_indicators.length>0&&(
+              <div style={{background:"#F8FAFC",border:"1px solid #E2E8F0",borderRadius:8,padding:"12px 14px"}}>
+                <div style={{fontSize:10,fontWeight:700,letterSpacing:"0.08em",color:"#475569",marginBottom:8}}>RISK INDICATORS · {fm.risk_indicators.length}</div>
+                <div style={{display:"flex",flexDirection:"column",gap:5}}>
+                  {fm.risk_indicators.map(r=>(
+                    <code key={r} style={{fontSize:11,fontFamily:"'Consolas',monospace",background:"white",padding:"4px 8px",borderRadius:4,border:"1px solid #E2E8F0",color:"#1E293B",wordBreak:"break-word"}}>{r}</code>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {fm.sources.length>0&&(
+              <div style={{background:"#F8FAFC",border:"1px solid #E2E8F0",borderRadius:8,padding:"12px 14px"}}>
+                <div style={{fontSize:10,fontWeight:700,letterSpacing:"0.08em",color:"#475569",marginBottom:8}}>SOURCES · {fm.sources.length}</div>
+                {fm.sources.map((s,i)=>(
+                  <div key={i} style={{fontSize:11,color:"#334155",marginBottom:6,paddingBottom:6,borderBottom:i<fm.sources.length-1?"1px dashed #E2E8F0":"none"}}>
+                    <div style={{fontWeight:700,color:"#0F172A"}}>{s.org}</div>
+                    {s.citation&&<div style={{marginTop:2,fontStyle:"italic"}}>{s.citation}</div>}
+                    {s.type&&<div style={{marginTop:2,fontSize:9,color:"#64748B",letterSpacing:"0.05em",textTransform:"uppercase"}}>{s.type}</div>}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {approvers.length>0&&(
+              <div style={{background:"#F0FDF4",border:"1px solid #BBF7D0",borderRadius:8,padding:"12px 14px"}}>
+                <div style={{fontSize:10,fontWeight:700,letterSpacing:"0.08em",color:"#15803D",marginBottom:8}}>APPROVED BY · {approvers.length}</div>
+                {approvers.map((a,i)=>(
+                  <div key={i} style={{fontSize:11,color:"#14532D",marginBottom:4}}>
+                    <b>{a.name||"—"}</b> <span style={{color:"#15803D"}}>· {a.role||"—"}</span>
+                    {a.date&&<span style={{color:"#64748B",marginLeft:6,fontFamily:"monospace",fontSize:10}}>{a.date}</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TypologyReviewPanel({rows,loading,onChanged}){
+  const [selectedId,setSelectedId]=useState(null);
+  const [reviewer,setReviewer]=useState(TYPOLOGY_REVIEWERS[0].name);
+  const [notes,setNotes]=useState("");
+  const [busy,setBusy]=useState(false);
+  const [flash,setFlash]=useState(null);
+
+  const sel=rows.find(r=>r.id===selectedId) || rows[0];
+  const detail=useApi(sel?`/api/typologies/candidates/${sel.id}`:null);
+
+  const reviewerRole=TYPOLOGY_REVIEWERS.find(r=>r.name===reviewer)?.role || "reviewer";
+
+  async function doAction(action){
+    if(!sel) return;
+    setBusy(true); setFlash(null);
+    try{
+      const body={name:reviewer,role:reviewerRole};
+      if(action==="reject") body.notes=notes||"rejected via UI";
+      const r=await fetch(`/api/typologies/candidates/${sel.id}/${action}`,{
+        method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)
+      });
+      const j=await r.json();
+      if(!r.ok){
+        const msg=typeof j.detail==="object"?(j.detail.message||"Action failed"):(j.detail||r.statusText);
+        const blocks=typeof j.detail==="object"&&j.detail.issues?j.detail.issues:[];
+        setFlash({kind:"err",msg,blocks});
+        return;
+      }
+      const tail=j.review_status==="approved"?` — APPROVED (2 reviewers signed).`:
+                 j.review_status==="rejected"?` — REJECTED.`:
+                 ` — ${j.needs_more} more reviewer(s) needed.`;
+      setFlash({kind:"ok",msg:`Recorded ${action} by ${reviewer}${tail}`});
+      setNotes("");
+      onChanged?.();
+    }catch(e){
+      setFlash({kind:"err",msg:`Network error: ${e.message}`});
+    }finally{ setBusy(false); }
+  }
+
+  if(loading) return <div style={{padding:16,color:"#64748B",fontSize:12}}>Loading review queue…</div>;
+  if(rows.length===0) return <div style={{padding:16,color:"#64748B",fontSize:12}}>No pending candidates. Run the harvester to ingest new typology suggestions.</div>;
+
+  const diffPill=(k)=>{
+    const bg={NEW:"#DBEAFE",UPDATE:"#FEF3C7",DUPLICATE:"#F1F5F9"}[k]||"#F1F5F9";
+    const co={NEW:"#1D4ED8",UPDATE:"#B45309",DUPLICATE:"#475569"}[k]||"#475569";
+    return <span style={{fontSize:10,fontWeight:700,letterSpacing:"0.05em",color:co,background:bg,padding:"2px 7px",borderRadius:3}}>{k}</span>;
+  };
+
+  return(
+    <div style={{display:"grid",gridTemplateColumns:"320px 1fr",gap:16}}>
+      <div style={{background:"white",borderRadius:10,border:"1px solid #E2E8F0",overflow:"hidden",alignSelf:"flex-start"}}>
+        <div style={{padding:"10px 14px",borderBottom:"1px solid #E2E8F0",fontSize:11,fontWeight:700,color:"#64748B",letterSpacing:"0.05em",background:"#F8FAFC"}}>PENDING CANDIDATES ({rows.length})</div>
+        {rows.map(r=>{
+          const Active=r.id===(sel?.id);
+          return(
+            <button key={r.id} onClick={()=>setSelectedId(r.id)}
+              style={{width:"100%",textAlign:"left",padding:"10px 14px",borderBottom:"1px solid #F1F5F9",border:"none",borderLeft:Active?`3px solid ${NAVY}`:"3px solid transparent",background:Active?"#EFF6FF":"white",cursor:"pointer"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div style={{fontSize:12,fontWeight:700,color:"#0F172A"}}>{r.candidateName}</div>
+                {diffPill(r.diffClass)}
+              </div>
+              <div style={{fontSize:10,color:"#94A3B8",marginTop:2,fontFamily:"monospace"}}>{r.candidateCategory} · sim={Number(r.similarity||0).toFixed(2)}{r.diffTargetId?` · → ${r.diffTargetId}`:""}</div>
+              <div style={{fontSize:10,color:"#CBD5E1",marginTop:2}}>{r.sourceOrg}</div>
+            </button>
+          );
+        })}
+      </div>
+
+      {sel&&(
+        <div style={{background:"white",borderRadius:10,padding:22,border:"1px solid #E2E8F0",minHeight:400}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
+            <div>
+              <div style={{fontSize:17,fontWeight:800,color:"#0F172A"}}>{sel.candidateName}</div>
+              <div style={{fontSize:11,color:"#94A3B8",fontFamily:"monospace",marginTop:2}}>{sel.id.slice(0,8)} · {sel.candidateCategory} · {diffPill(sel.diffClass)} → {sel.diffTargetId||"(new id)"}</div>
+              {detail.data&&<div style={{fontSize:11,color:"#94A3B8",marginTop:2}}>Source: {detail.data.sourceOrg} · <a href={detail.data.sourceUrl} target="_blank" rel="noreferrer" style={{color:"#1D4ED8",textDecoration:"none"}}>{detail.data.sourceUrl}</a></div>}
+              {detail.data?.extractorName&&<div style={{fontSize:10,color:"#CBD5E1",fontFamily:"monospace",marginTop:2}}>extractor: {detail.data.extractorName} v{detail.data.extractorVersion}{detail.data.promptVersion?` · prompt v${detail.data.promptVersion} (${(detail.data.promptSha256||"").slice(0,10)}…)`:""}</div>}
+            </div>
+          </div>
+
+          <div style={{display:"flex",gap:10,alignItems:"flex-end",margin:"10px 0 14px",padding:"10px 12px",background:"#F8FAFC",borderRadius:6,border:"1px solid #E2E8F0"}}>
+            <div>
+              <div style={{fontSize:10,color:"#64748B",letterSpacing:"0.05em",fontWeight:600,marginBottom:4}}>REVIEWER</div>
+              <select value={reviewer} onChange={e=>setReviewer(e.target.value)} style={{padding:"6px 10px",borderRadius:5,border:"1px solid #CBD5E1",fontSize:12,minWidth:180}}>
+                {TYPOLOGY_REVIEWERS.map(r=><option key={r.name} value={r.name}>{r.name} — {r.role}</option>)}
+              </select>
+            </div>
+            <input type="text" value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Notes (required if rejecting)"
+              style={{flex:1,padding:"6px 10px",borderRadius:5,border:"1px solid #CBD5E1",fontSize:12}}/>
+            <button onClick={()=>doAction("approve")} disabled={busy}
+              style={{padding:"7px 14px",borderRadius:5,border:"1px solid #15803D",background:busy?"#9CA3AF":"#15803D",color:"white",fontSize:12,fontWeight:700,cursor:busy?"wait":"pointer"}}>APPROVE</button>
+            <button onClick={()=>doAction("reject")} disabled={busy||!notes.trim()}
+              style={{padding:"7px 14px",borderRadius:5,border:"1px solid #B91C1C",background:(busy||!notes.trim())?"#9CA3AF":"#B91C1C",color:"white",fontSize:12,fontWeight:700,cursor:(busy||!notes.trim())?"not-allowed":"pointer"}}>REJECT</button>
+          </div>
+
+          {flash&&(
+            <div style={{padding:"7px 11px",borderRadius:5,fontSize:11,marginBottom:12,
+              background:flash.kind==="ok"?"#DCFCE7":"#FEE2E2",
+              color:flash.kind==="ok"?"#15803D":"#B91C1C",
+              border:`1px solid ${flash.kind==="ok"?"#86EFAC":"#FCA5A5"}`}}>
+              {flash.msg}
+              {flash.blocks?.length>0&&<ul style={{margin:"4px 0 0 18px",padding:0}}>{flash.blocks.map((b,i)=><li key={i} style={{fontSize:10}}>[{b.code}] {b.message}</li>)}</ul>}
+            </div>
+          )}
+
+          {detail.data?.reviewedBy?.length>0 && (
+            <div style={{marginBottom:14,padding:"8px 12px",background:"#F8FAFC",border:"1px solid #E2E8F0",borderRadius:6}}>
+              <div style={{fontSize:10,color:"#64748B",letterSpacing:"0.05em",fontWeight:700,marginBottom:6}}>REVIEW HISTORY</div>
+              {detail.data.reviewedBy.map((rb,i)=>(
+                <div key={i} style={{fontSize:11,color:"#475569",marginBottom:2}}>
+                  <code style={{fontSize:10,background:rb.action==="approve"?"#DCFCE7":"#FEE2E2",color:rb.action==="approve"?"#15803D":"#B91C1C",padding:"1px 5px",borderRadius:2,marginRight:6}}>{rb.action?.toUpperCase()}</code>
+                  <b>{rb.name}</b> ({rb.role}) · {rb.date}{rb.notes?` — ${rb.notes}`:""}
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div style={{borderTop:"1px solid #F1F5F9",paddingTop:14,maxHeight:520,overflowY:"auto"}}>
+            <div style={{fontSize:10,color:"#64748B",letterSpacing:"0.05em",fontWeight:700,marginBottom:8}}>CANDIDATE MD</div>
+            <pre style={{fontSize:11,fontFamily:"Consolas, monospace",background:"#0F172A",color:"#E2E8F0",padding:14,borderRadius:6,overflowX:"auto",lineHeight:1.5,margin:0}}>{detail.data?.candidateMd||"…"}</pre>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // --- PROMPT STUDIO --------------------------------------------
 function PromptStudioView(){
   const [selected,setSelected]=useState(PROMPTS[0]?.slug||null);
@@ -2694,9 +3215,9 @@ function AuditTrailView({onNav,selId}){
               <button onClick={()=>onNav("alert-detail",detail.alertId)} style={{padding:"7px 14px",background:NAVY,color:"white",border:"none",borderRadius:7,cursor:"pointer",fontWeight:600,fontSize:12}}>View Alert →</button>
             </div>
             {detail.narrative&&(
-              <div style={{background:"white",borderRadius:10,padding:18,border:"1px solid #E2E8F0",marginBottom:14}}>
+              <div style={{marginBottom:14}}>
                 <div style={{fontSize:13,fontWeight:700,color:"#0F172A",marginBottom:8}}>Narrative</div>
-                <pre style={{whiteSpace:"pre-wrap",fontSize:12,color:"#334155",margin:0,fontFamily:"inherit",lineHeight:1.6}}>{detail.narrative}</pre>
+                <NarrativeReport text={detail.narrative}/>
               </div>
             )}
             <div style={{background:"white",borderRadius:10,padding:18,border:"1px solid #E2E8F0",marginBottom:14}}>
@@ -2818,9 +3339,27 @@ const AUDIT_ITEMS=[
 const WORKBENCH_ITEMS=[
   {id:"wb-agents",label:"Agent Studio",blurb:"Supervisor and specialist agents (alert triage, case investigator, SAR drafter, network analyst) with tool routing, prompt versions, and live trace inspection."},
   {id:"wb-skills",label:"Skills Library",blurb:"Reusable AML skills with telemetry, health scoring, and trigger analytics so platform engineers can evolve detection logic safely."},
+  {id:"wb-typologies",label:"Typology",blurb:"AML typology library + harvester: inspect active typologies, run the harvester against regulator feeds, review candidates (NEW/UPDATE/DUPLICATE), and promote approved typologies into the live library."},
   {id:"wb-prompts",label:"Prompt Studio",blurb:"Versioned prompt YAML editor with A/B comparison, regression playback against historical alerts, and approval workflow."},
   {id:"wb-pipelines",label:"Data Pipelines",blurb:"Ingestion + sync status across core banking, SWIFT, sanctions, and PEP feeds with per-source freshness, lag, and lineage."},
 ];
+
+const TYPOLOGY_REVIEWERS=[
+  {name:"Sumit",   role:"MLRO"},
+  {name:"Manash",  role:"AML Analyst"},
+  {name:"John",    role:"Compliance Lead"},
+  {name:"Wayne",   role:"AML Analyst"},
+];
+
+// Sidebar placeholder items that have working views (no SOON pill).
+// Anything not in here renders the SOON badge + a ComingSoonView.
+const SHIPPED_PLACEHOLDER_IDS=new Set([
+  "audit-events",
+  "wb-agents",
+  "wb-skills",
+  "wb-typologies",
+  "wb-prompts",
+]);
 
 // --- MAIN APP -------------------------------------------------
 export default function ThemisPlatform(){
@@ -2866,6 +3405,7 @@ export default function ThemisPlatform(){
   );
   const PlaceholderItem=({item,category})=>{
     const Active=view===item.id;
+    const shipped=SHIPPED_PLACEHOLDER_IDS.has(item.id);
     return(
       <button onClick={()=>nav(item.id)}
         style={{width:"100%",display:"flex",alignItems:"center",gap:8,padding:"6px 10px 6px 22px",borderRadius:8,fontSize:13,textAlign:"left",transition:"all 0.15s",
@@ -2873,7 +3413,7 @@ export default function ThemisPlatform(){
           color:Active?NAVY:"#4b5563",
           fontWeight:Active?500:400,border:"none",cursor:"pointer"}}>
         {item.label}
-        <span style={{marginLeft:"auto",fontSize:8,fontWeight:600,color:"#92400E",background:"#FEF3C7",padding:"1px 5px",borderRadius:3,letterSpacing:"0.04em"}}>SOON</span>
+        {!shipped&&<span style={{marginLeft:"auto",fontSize:8,fontWeight:600,color:"#92400E",background:"#FEF3C7",padding:"1px 5px",borderRadius:3,letterSpacing:"0.04em"}}>SOON</span>}
       </button>
     );
   };
@@ -2994,9 +3534,9 @@ export default function ThemisPlatform(){
         <div style={{height:52,background:NAVY,borderBottom:"1px solid rgba(255,255,255,.06)",display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0 24px",flexShrink:0}}>
           <div style={{display:"flex",alignItems:"center",gap:8}}>
             <span style={{fontSize:14,fontWeight:500,color:"white",letterSpacing:"-0.01em",whiteSpace:"nowrap"}}>
-              AML Intelligence Platform Built for INCEDO
+              <span style={{color:ORANGE}}>Themis</span>
               <span style={{color:"rgba(255,255,255,.5)",fontWeight:300,margin:"0 6px"}}>·</span>
-              Powered by <span style={{color:ORANGE}}>Themis</span>
+              AML Intelligence Platform
             </span>
           </div>
           <div style={{display:"flex",gap:10,alignItems:"center"}}>
@@ -3034,6 +3574,7 @@ export default function ThemisPlatform(){
           {AUDIT_ITEMS.find(i=>i.id===view&&i.id!=="audit-events")&&<ComingSoonView title={AUDIT_ITEMS.find(i=>i.id===view).label} category="Audit Trail" blurb={AUDIT_ITEMS.find(i=>i.id===view).blurb}/>}
           {view==="wb-agents"&&<AgentStudioView/>}
           {view==="wb-skills"&&<SkillsLibraryView/>}
+          {view==="wb-typologies"&&<TypologyWorkbenchView/>}
           {view==="wb-prompts"&&<PromptStudioView/>}
           {view==="wb-pipelines"&&<ComingSoonView title="Data Pipelines" category="Platform Workbench" blurb={WORKBENCH_ITEMS.find(i=>i.id==="wb-pipelines").blurb}/>}
         </div>

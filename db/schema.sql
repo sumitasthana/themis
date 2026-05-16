@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict DsijDlKhUZXYrUTs59fqpwZGmrfqm7bk5jklNrqqZg0SsQg2MlrgTZ2sikf2r16
+\restrict jx8YJIwuDUpUjFRrYMjTImcRvphUbOr30MJPDEr5lROn7MsZfEIJW0uKznT3KHx
 
 -- Dumped from database version 18.3 (Debian 18.3-1.pgdg13+1)
 -- Dumped by pg_dump version 18.3 (Debian 18.3-1.pgdg13+1)
@@ -29,6 +29,16 @@ SET default_table_access_method = heap;
 
 CREATE TABLE public.alembic_version (
     version_num character varying(32) NOT NULL
+);
+
+
+--
+-- Name: alert_transactions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.alert_transactions (
+    alert_id text NOT NULL,
+    transaction_id text NOT NULL
 );
 
 
@@ -565,7 +575,6 @@ ALTER SEQUENCE public.timeline_entries_id_seq OWNED BY public.timeline_entries.i
 
 CREATE TABLE public.transactions (
     id text NOT NULL,
-    alert_id text NOT NULL,
     date date,
     "time" text,
     descr text,
@@ -578,7 +587,8 @@ CREATE TABLE public.transactions (
     country text,
     city text,
     notes text,
-    risk_indicators text[]
+    risk_indicators text[],
+    customer_id text
 );
 
 
@@ -658,6 +668,14 @@ ALTER TABLE ONLY public.timeline_entries ALTER COLUMN id SET DEFAULT nextval('pu
 
 ALTER TABLE ONLY public.alembic_version
     ADD CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num);
+
+
+--
+-- Name: alert_transactions alert_transactions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.alert_transactions
+    ADD CONSTRAINT alert_transactions_pkey PRIMARY KEY (alert_id, transaction_id);
 
 
 --
@@ -825,7 +843,29 @@ ALTER TABLE ONLY public.timeline_entries
 --
 
 ALTER TABLE ONLY public.transactions
-    ADD CONSTRAINT transactions_pkey PRIMARY KEY (alert_id, id);
+    ADD CONSTRAINT transactions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: ix_alert_transactions_transaction_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_alert_transactions_transaction_id ON public.alert_transactions USING btree (transaction_id);
+
+
+--
+-- Name: ix_transactions_customer_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_transactions_customer_id ON public.transactions USING btree (customer_id);
+
+
+--
+-- Name: alert_transactions alert_transactions_alert_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.alert_transactions
+    ADD CONSTRAINT alert_transactions_alert_id_fkey FOREIGN KEY (alert_id) REFERENCES public.alerts(id) ON DELETE CASCADE;
 
 
 --
@@ -973,16 +1013,16 @@ ALTER TABLE ONLY public.timeline_entries
 
 
 --
--- Name: transactions transactions_alert_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: transactions transactions_customer_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.transactions
-    ADD CONSTRAINT transactions_alert_id_fkey FOREIGN KEY (alert_id) REFERENCES public.alerts(id) ON DELETE CASCADE;
+    ADD CONSTRAINT transactions_customer_id_fkey FOREIGN KEY (customer_id) REFERENCES public.customers(id);
 
 
 --
 -- PostgreSQL database dump complete
 --
 
-\unrestrict DsijDlKhUZXYrUTs59fqpwZGmrfqm7bk5jklNrqqZg0SsQg2MlrgTZ2sikf2r16
+\unrestrict jx8YJIwuDUpUjFRrYMjTImcRvphUbOr30MJPDEr5lROn7MsZfEIJW0uKznT3KHx
 

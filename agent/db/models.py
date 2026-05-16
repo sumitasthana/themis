@@ -54,6 +54,7 @@ class Customer(Base):
     alerts = relationship("Alert", back_populates="customer")
     cases = relationship("Case", back_populates="customer")
     sars = relationship("SAR", back_populates="customer")
+    transactions = relationship("Transaction", back_populates="customer")
 
 
 class CustomerRiskFactor(Base):
@@ -94,7 +95,9 @@ class Alert(Base):
         "AlertTypology", back_populates="alert", cascade="all, delete-orphan"
     )
     transactions = relationship(
-        "Transaction", back_populates="alert", cascade="all, delete-orphan"
+        "Transaction",
+        secondary="alert_transactions",
+        back_populates="alerts",
     )
     timeline = relationship(
         "TimelineEntry", back_populates="alert", cascade="all, delete-orphan"
@@ -117,10 +120,12 @@ class AlertTypology(Base):
 
     alert_id = Column(Text, ForeignKey("alerts.id", ondelete="CASCADE"))
     typology_name = Column(Text)
+    typology_id = Column(Text, ForeignKey("typologies.typology_id"), nullable=True)
 
     __table_args__ = (PrimaryKeyConstraint("alert_id", "typology_name"),)
 
     alert = relationship("Alert", back_populates="typologies")
+    typology = relationship("Typology", back_populates="alert_links")
 
 
 # ---------------------------------------------------------------------
@@ -130,9 +135,8 @@ class AlertTypology(Base):
 class Transaction(Base):
     __tablename__ = "transactions"
 
-    id = Column(Text)
-    alert_id = Column(Text, ForeignKey("alerts.id", ondelete="CASCADE"))
-    __table_args__ = (PrimaryKeyConstraint("alert_id", "id"),)
+    id = Column(Text, primary_key=True)
+    customer_id = Column(Text, ForeignKey("customers.id"))
     date = Column(Date)
     time = Column(Text)
     descr = Column(Text)
@@ -147,7 +151,21 @@ class Transaction(Base):
     notes = Column(Text)
     risk_indicators = Column(ARRAY(Text))
 
-    alert = relationship("Alert", back_populates="transactions")
+    customer = relationship("Customer", back_populates="transactions")
+    alerts = relationship(
+        "Alert",
+        secondary="alert_transactions",
+        back_populates="transactions",
+    )
+
+
+class AlertTransaction(Base):
+    __tablename__ = "alert_transactions"
+
+    alert_id = Column(Text, ForeignKey("alerts.id", ondelete="CASCADE"))
+    transaction_id = Column(Text, ForeignKey("transactions.id", ondelete="CASCADE"))
+
+    __table_args__ = (PrimaryKeyConstraint("alert_id", "transaction_id"),)
 
 
 class TimelineEntry(Base):
@@ -432,3 +450,54 @@ class InvestigationRiskFactor(Base):
     weight = Column(Numeric)
 
     investigation = relationship("Investigation", back_populates="factors")
+
+
+# ---------------------------------------------------------------------
+# Typology registry (Phase 5 — harvester pipeline)
+# ---------------------------------------------------------------------
+
+from sqlalchemy import Float  # noqa: E402
+
+
+class Typology(Base):
+    __tablename__ = "typologies"
+
+    typology_id = Column(Text, primary_key=True)
+    name = Column(Text, nullable=False)
+    category = Column(Text, nullable=False)
+    current_version = Column(Text, nullable=False)
+    md_path = Column(Text, nullable=False)
+    md_sha256 = Column(Text, nullable=False)
+    status = Column(Text, nullable=False)
+    approved_by = Column(JSON)
+    deployed_at = Column(DateTime(timezone=True))
+    retired_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True))
+    updated_at = Column(DateTime(timezone=True))
+
+    alert_links = relationship("AlertTypology", back_populates="typology")
+
+
+class TypologyCandidate(Base):
+    __tablename__ = "typology_candidates"
+
+    id = Column(Text, primary_key=True)
+    source_tier = Column(Text, nullable=False)
+    source_org = Column(Text, nullable=False)
+    source_url = Column(Text, nullable=False)
+    source_sha256 = Column(Text, nullable=False)
+    fetched_at = Column(DateTime(timezone=True), nullable=False)
+    extractor_name = Column(Text, nullable=False)
+    extractor_version = Column(Text, nullable=False)
+    prompt_version = Column(Text)
+    prompt_sha256 = Column(Text)
+    candidate_md = Column(Text, nullable=False)
+    candidate_name = Column(Text, nullable=False)
+    candidate_category = Column(Text, nullable=False)
+    diff_class = Column(Text, nullable=False)
+    diff_target_id = Column(Text, ForeignKey("typologies.typology_id"))
+    similarity = Column(Float)
+    review_status = Column(Text, nullable=False, default="pending")
+    reviewed_by = Column(JSON)
+    review_notes = Column(Text)
+    created_at = Column(DateTime(timezone=True))

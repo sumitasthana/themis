@@ -1,0 +1,24 @@
+{
+  "source_org": "FATF",
+  "source_tier": "tier1",
+  "source_url": "https://www.fatf-gafi.org/publications/2025/mid-year-review.html",
+  "publication_date": "2025-09-12",
+  "title": "FATF Mid-Year Review of Emerging Money Laundering Typologies, 2025",
+  "fetched_at": "2026-05-15T10:00:00Z",
+  "content": "Section 4.7 — Cross-Chain Laundering. During the reporting period, FATF members observed an increase in the use of cross-chain bridges and atomic swap services to obfuscate the path of illicit proceeds. Subjects deposit funds at a centralized exchange operating one virtual asset blockchain (e.g., a Bitcoin-native exchange), then route the assets through decentralized bridge protocols to a second chain (e.g., Tron, Solana, or an EVM L2), commonly using privacy-enhancing techniques such as mixers or batching contracts. The chain-hopping pattern complicates the chain analytics traceback that single-blockchain monitoring tools depend on. Several cases involved aggregate value exceeding USD 8.4 million, structured into 14-22 individual bridge transactions sized between USD 180,000 and USD 600,000 to remain below internal compliance thresholds at the originating VASP. Indicative red flags reported by member jurisdictions include: rapid sequential use of two or more cross-chain bridges within a 72-hour window; bridge destination addresses that have transacted with sanctioned mixers within the preceding 30 days; and VASP customer behavior shifting from single-asset trading to multi-chain bridging without a documented commercial rationale.",
+  "extracted_typologies": [
+    {
+      "name": "Cross-Chain Laundering",
+      "category": "emerging_tech",
+      "ml_stage": ["layering"],
+      "definition": "Cross-chain laundering uses bridge protocols, atomic swaps, and decentralized exchange routing to move illicit virtual-asset proceeds between separate blockchain networks. By hopping chains, the subject defeats chain-analytics traceback that depends on observing a continuous flow on a single ledger. Privacy-enhancing tools (mixers, batching contracts) are frequently layered on top of the bridging activity to further fragment the path. (FATF Mid-Year Review 2025, §4.7.)",
+      "example": "A subject deposits 130 BTC at a Bitcoin-native VASP, bridges the value to USDT on Tron via a cross-chain bridge, then moves the resulting USDT through a Solana mixer before final off-ramping at a different VASP. Aggregate value across the chain involved approximately USD 8.4 million split across 18 bridge transactions sized USD 220,000 to USD 580,000.",
+      "red_flags": [
+        "rapid_sequential_use_of_two_or_more_bridges_within_72_hours",
+        "bridge_destination_interacted_with_sanctioned_mixer_in_last_30_days",
+        "vasp_customer_behavior_shift_from_single_asset_to_multi_chain",
+        "bridge_transaction_amounts_sized_below_internal_vasp_threshold"
+      ]
+    }
+  ]
+}

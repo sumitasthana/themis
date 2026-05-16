@@ -68,8 +68,10 @@ async def get_alert_details(alert_id: str) -> Dict[str, Any]:
         )).scalars().all()
 
         flagged_rows = (await s.execute(
-            select(M.Transaction.id, M.Transaction.amount).where(
-                and_(M.Transaction.alert_id == alert_id, M.Transaction.flagged.is_(True))
+            select(M.Transaction.id, M.Transaction.amount)
+            .join(M.AlertTransaction, M.AlertTransaction.transaction_id == M.Transaction.id)
+            .where(
+                and_(M.AlertTransaction.alert_id == alert_id, M.Transaction.flagged.is_(True))
             )
         )).all()
 
@@ -117,17 +119,10 @@ async def search_transactions(
     max_amount: Optional[float] = None,
     transaction_type: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
-    """Return all transactions across this customer's alerts that match
-    the filters, in shape `_step_3_transactions` consumes."""
+    """Return all transactions for this customer that match the filters,
+    in shape `_step_3_transactions` consumes."""
     async with SessionLocal() as s:
-        alert_ids = (await s.execute(
-            select(M.Alert.id).where(M.Alert.customer_id == customer_id)
-        )).scalars().all()
-
-        if not alert_ids:
-            return []
-
-        stmt = select(M.Transaction).where(M.Transaction.alert_id.in_(alert_ids))
+        stmt = select(M.Transaction).where(M.Transaction.customer_id == customer_id)
         if min_amount is not None:
             stmt = stmt.where(func.abs(M.Transaction.amount) >= min_amount)
         if max_amount is not None:
@@ -363,15 +358,8 @@ async def calculate_baseline(customer_id: str, period_days: int = 90) -> Dict[st
     """Compare the customer's flagged-window activity vs their non-flagged
     baseline. Shape matches `_step_4_baseline`."""
     async with SessionLocal() as s:
-        alert_ids = (await s.execute(
-            select(M.Alert.id).where(M.Alert.customer_id == customer_id)
-        )).scalars().all()
-
-        if not alert_ids:
-            return _empty_baseline(customer_id, period_days)
-
         txs = (await s.execute(
-            select(M.Transaction).where(M.Transaction.alert_id.in_(alert_ids))
+            select(M.Transaction).where(M.Transaction.customer_id == customer_id)
         )).scalars().all()
 
     if not txs:
@@ -470,23 +458,19 @@ _HIGH_RISK_KEYWORDS = {"loan", "gift", "cash", "shell", "offshore", "nominee", "
 
 async def search_keywords(customer_id: str, keywords: List[str]) -> Dict[str, Any]:
     """ILIKE-search transaction `descr` and `notes` for keywords across
-    this customer's alerts. Shape matches `_step_6_keywords`."""
+    this customer's transactions. Shape matches `_step_6_keywords`."""
     keywords = keywords or []
+    if not keywords:
+        return {
+            "customer_id": customer_id,
+            "keywords_searched": keywords,
+            "total_matches": 0,
+            "matches": [],
+            "high_risk_keywords_found": [],
+            "requires_review": False,
+        }
+
     async with SessionLocal() as s:
-        alert_ids = (await s.execute(
-            select(M.Alert.id).where(M.Alert.customer_id == customer_id)
-        )).scalars().all()
-
-        if not alert_ids or not keywords:
-            return {
-                "customer_id": customer_id,
-                "keywords_searched": keywords,
-                "total_matches": 0,
-                "matches": [],
-                "high_risk_keywords_found": [],
-                "requires_review": False,
-            }
-
         clauses = []
         for kw in keywords:
             pattern = f"%{kw}%"
@@ -495,7 +479,7 @@ async def search_keywords(customer_id: str, keywords: List[str]) -> Dict[str, An
 
         rows = (await s.execute(
             select(M.Transaction)
-            .where(and_(M.Transaction.alert_id.in_(alert_ids), or_(*clauses)))
+            .where(and_(M.Transaction.customer_id == customer_id, or_(*clauses)))
             .order_by(M.Transaction.date.desc())
         )).scalars().all()
 
@@ -542,24 +526,18 @@ async def verify_income(customer_id: str) -> Dict[str, Any]:
         if c is None:
             raise ValueError(f"Customer {customer_id} not found")
 
-        alert_ids = (await s.execute(
-            select(M.Alert.id).where(M.Alert.customer_id == customer_id)
-        )).scalars().all()
-
-        observed = 0.0
-        if alert_ids:
-            rows = (await s.execute(
-                select(M.Transaction.amount).where(
-                    and_(M.Transaction.alert_id.in_(alert_ids), M.Transaction.amount > 0)
-                )
-            )).all()
-            # rows are summed across all observed alert windows; the total is
-            # treated as inflow over those windows
-            observed = float(sum(r[0] or 0 for r in rows))
+        rows = (await s.execute(
+            select(M.Transaction.amount).where(
+                and_(M.Transaction.customer_id == customer_id, M.Transaction.amount > 0)
+            )
+        )).all()
+        # Sum positive-amount transactions across the customer's full
+        # ledger; treated as inflow for the verification window.
+        observed = float(sum(r[0] or 0 for r in rows))
 
     stated = float(c.stated_income or 0)
-    # Annualize: observed sum is across alert windows (~30 days each); scale to year
-    annualized_observed = observed * (365 / 30) / max(1, len(alert_ids))
+    # Annualize: treat observed inflow as a ~30-day window and scale to a year
+    annualized_observed = observed * (365 / 30)
     if stated > 0:
         discrepancy_pct = abs(annualized_observed - stated) / stated * 100
     else:

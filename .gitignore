@@ -5,3 +5,12 @@ dist
 .DS_Store
 __pycache__/
 *.pyc
+
+# Harvester runtime — only the two committed fixture sources should be tracked.
+harvested/sources/*.json
+!harvested/sources/fatf_2025_mid_year_review.json
+!harvested/sources/fincen_2026_a002_prepaid_structuring.json
+harvested/candidates/*.md
+
+# Personal scratch — never commit.
+random/

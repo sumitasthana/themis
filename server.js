@@ -23,11 +23,59 @@ const client = new BedrockRuntimeClient({
 
 const MODEL_ID = process.env.AWS_BEDROCK_MODEL || 'anthropic.claude-3-sonnet-20240229-v1:0';
 
+// Fetch JSON from the Python agent API, returning null on any failure so the
+// chat still works (just without live context) if the agent is down.
+async function agentGet(path) {
+  try {
+    const r = await fetch(`${AGENT_API_URL}${path}`);
+    if (!r.ok) return null;
+    return await r.json();
+  } catch {
+    return null;
+  }
+}
+
+// Map the screen the user is on to the agent endpoints worth pulling in.
+// The dashboard summary is always useful, so it's fetched for every view.
+function endpointsForView(view) {
+  const v = (view || '').toLowerCase();
+  const eps = ['/api/dashboard/summary'];
+  if (v.includes('alert') || v.includes('briefing') || v.includes('dashboard')) eps.push('/api/alerts');
+  if (v.includes('case')) eps.push('/api/cases');
+  if (v.includes('sar')) eps.push('/api/sars');
+  if (v.includes('anomal')) eps.push('/api/anomalies');
+  if (v.includes('screen')) eps.push('/api/screening');
+  if (v.includes('customer')) eps.push('/api/customers');
+  if (v.includes('model') || v.includes('governance')) eps.push('/api/models');
+  if (v.includes('connector') || v.includes('setting')) eps.push('/api/connectors');
+  if (v.includes('audit') || v.includes('investigation')) eps.push('/api/investigations');
+  return [...new Set(eps)];
+}
+
+// Pull live data from Postgres (via the agent API) and format it as a context
+// block for the system prompt. Returns '' if nothing could be fetched.
+async function buildLiveContext(view) {
+  const endpoints = endpointsForView(view);
+  const results = await Promise.all(endpoints.map(agentGet));
+  const blocks = [];
+  endpoints.forEach((ep, i) => {
+    const data = results[i];
+    if (data == null) return;
+    // Cap list payloads so the prompt stays small.
+    const trimmed = Array.isArray(data) ? data.slice(0, 25) : data;
+    blocks.push(`${ep}:\n${JSON.stringify(trimmed)}`);
+  });
+  if (blocks.length === 0) return '';
+  return `\n\nLIVE DATA (current contents of the Themis database — answer specific data questions from this, not from assumptions):\n${blocks.join('\n\n')}`;
+}
+
 app.post('/api/chat', async (req, res) => {
   try {
     const { messages, view } = req.body;
 
-    const systemPrompt = `You are Themis, an AI compliance copilot for an AML (Anti-Money Laundering) intelligence platform called Themis by INCEDO. You help compliance analysts, investigators, and officers understand alerts, transactions, cases, and model governance data. Be concise, professional, and accurate. The user is currently viewing the ${view || 'dashboard'} screen. If asked about specific data, respond based on general AML expertise since you do not have live database access in this demo environment.`;
+    const liveContext = await buildLiveContext(view);
+
+    const systemPrompt = `You are Themis, an AI compliance copilot for an AML (Anti-Money Laundering) intelligence platform called Themis. You help compliance analysts, investigators, and officers understand alerts, transactions, cases, and model governance data. Be concise, professional, and accurate. The user is currently viewing the ${view || 'dashboard'} screen. Do not use emojis, emoticons, or decorative icons in your responses — keep formatting plain and professional. Use markdown tables and lists where they aid clarity. When the LIVE DATA section below is present, base any data-specific answers on it; if a question needs data not included there, say so plainly rather than guessing.${liveContext}`;
 
     const body = {
       anthropic_version: "bedrock-2023-05-31",
@@ -153,6 +201,17 @@ const DATA_PROXY_PREFIXES = [
   '/api/connectors',
   '/api/transactions',
   '/api/investigations',
+  '/api/typologies',
+];
+
+// POST routes that are allowed to pass through the proxy (must explicitly
+// match here — anything else hits next() and is rejected later).
+const ALLOWED_WRITES = [
+  /^\/api\/cases\/[^/]+\/sar$/,                          // SAR draft
+  /^\/api\/typologies\/harvest$/,                        // Phase 5 harvester
+  /^\/api\/typologies\/candidates\/[^/]+\/approve$/,     // Phase 5 approve
+  /^\/api\/typologies\/candidates\/[^/]+\/reject$/,      // Phase 5 reject
+  /^\/api\/typologies\/promote$/,                        // Phase 5 promote
 ];
 
 app.use(async (req, res, next) => {
@@ -161,10 +220,9 @@ app.use(async (req, res, next) => {
   );
   if (!matched) return next();
 
-  // Phase 1: GETs forwarded as-is. Phase 2: POST /api/cases/:caseId/sar.
-  const isWriteSarRoute =
-    req.method === 'POST' && /^\/api\/cases\/[^/]+\/sar$/.test(req.path);
-  if (req.method !== 'GET' && !isWriteSarRoute) return next();
+  const isAllowedWrite = req.method === 'POST'
+    && ALLOWED_WRITES.some(re => re.test(req.path));
+  if (req.method !== 'GET' && !isAllowedWrite) return next();
 
   const target = `${AGENT_API_URL}${req.originalUrl}`;
   try {

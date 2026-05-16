@@ -505,10 +505,11 @@ async def list_connectors():
 
 @router.get("/api/transactions")
 async def list_transactions(flagged: bool | None = None):
-    """Flat list of transactions across all alerts. Optional ?flagged=true
-    filter. Each row carries `alertId` so callers can navigate back."""
+    """Flat ledger of transactions. Optional ?flagged=true filter. Each
+    row carries `alertIds: []` — empty for non-alert ledger rows, one or
+    more entries when the txn is evidence for one or more alerts."""
     async with SessionLocal() as s:
-        stmt = select(M.Transaction)
+        stmt = select(M.Transaction).options(selectinload(M.Transaction.alerts))
         if flagged is True:
             stmt = stmt.where(M.Transaction.flagged.is_(True))
         elif flagged is False:
@@ -519,7 +520,8 @@ async def list_transactions(flagged: bool | None = None):
     out = []
     for t in rows:
         d = _transaction_dict(t)
-        d["alertId"] = t.alert_id
+        d["customerId"] = t.customer_id
+        d["alertIds"] = [a.id for a in (t.alerts or [])]
         out.append(d)
     return out
 
@@ -597,6 +599,199 @@ async def get_investigation(inv_id: str):
         if not inv:
             raise HTTPException(404, f"Investigation {inv_id} not found")
         return _investigation_full(inv)
+
+
+# ---------------------------------------------------------------------
+# Phase 5 — Typology registry (read-only; promotion is CLI-only)
+# ---------------------------------------------------------------------
+
+def _typology_summary(t: M.Typology) -> dict[str, Any]:
+    return {
+        "typologyId": t.typology_id,
+        "name": t.name,
+        "category": t.category,
+        "currentVersion": t.current_version,
+        "status": t.status,
+        "mdPath": t.md_path,
+        "mdSha256": t.md_sha256,
+        "deployedAt": t.deployed_at.isoformat() if t.deployed_at else None,
+        "updatedAt": t.updated_at.isoformat() if t.updated_at else None,
+    }
+
+
+def _typology_full(t: M.Typology) -> dict[str, Any]:
+    """Full detail including MD body (read from disk)."""
+    body = ""
+    try:
+        # Resolve md_path relative to repo root (`agent/` is the cwd at runtime,
+        # so step up one level to reach `skills/...`).
+        from pathlib import Path
+        repo_root = Path(__file__).resolve().parents[1]
+        md_file = (repo_root / t.md_path)
+        if md_file.exists():
+            body = md_file.read_text(encoding="utf-8")
+    except Exception:
+        body = ""
+
+    return {
+        **_typology_summary(t),
+        "approvedBy": t.approved_by or [],
+        "retiredAt": t.retired_at.isoformat() if t.retired_at else None,
+        "mdBody": body,
+    }
+
+
+def _candidate_summary(c: M.TypologyCandidate) -> dict[str, Any]:
+    return {
+        "id": c.id,
+        "candidateName": c.candidate_name,
+        "candidateCategory": c.candidate_category,
+        "diffClass": c.diff_class,
+        "diffTargetId": c.diff_target_id,
+        "similarity": float(c.similarity) if c.similarity is not None else None,
+        "reviewStatus": c.review_status,
+        "sourceOrg": c.source_org,
+        "sourceUrl": c.source_url,
+        "createdAt": c.created_at.isoformat() if c.created_at else None,
+    }
+
+
+def _candidate_full(c: M.TypologyCandidate) -> dict[str, Any]:
+    return {
+        **_candidate_summary(c),
+        "sourceTier": c.source_tier,
+        "sourceSha256": c.source_sha256,
+        "fetchedAt": c.fetched_at.isoformat() if c.fetched_at else None,
+        "extractorName": c.extractor_name,
+        "extractorVersion": c.extractor_version,
+        "promptVersion": c.prompt_version,
+        "promptSha256": c.prompt_sha256,
+        "candidateMd": c.candidate_md,
+        "reviewedBy": c.reviewed_by or [],
+        "reviewNotes": c.review_notes,
+    }
+
+
+@router.get("/api/typologies")
+async def list_typologies():
+    """List active typologies (summary)."""
+    async with SessionLocal() as s:
+        rows = (await s.execute(
+            select(M.Typology).where(M.Typology.status == "active").order_by(M.Typology.typology_id)
+        )).scalars().all()
+    return [_typology_summary(t) for t in rows]
+
+
+@router.get("/api/typologies/candidates")
+async def list_candidates():
+    """List pending typology candidates (review queue)."""
+    async with SessionLocal() as s:
+        rows = (await s.execute(
+            select(M.TypologyCandidate)
+            .where(M.TypologyCandidate.review_status == "pending")
+            .order_by(desc(M.TypologyCandidate.created_at))
+        )).scalars().all()
+    return [_candidate_summary(c) for c in rows]
+
+
+@router.get("/api/typologies/candidates/{candidate_id}")
+async def get_candidate(candidate_id: str):
+    async with SessionLocal() as s:
+        c = (await s.execute(
+            select(M.TypologyCandidate).where(M.TypologyCandidate.id == candidate_id)
+        )).scalar_one_or_none()
+        if not c:
+            raise HTTPException(404, f"Candidate {candidate_id} not found")
+        return _candidate_full(c)
+
+
+@router.get("/api/typologies/{typology_id}")
+async def get_typology(typology_id: str):
+    """Full detail for one typology, including MD body."""
+    async with SessionLocal() as s:
+        t = (await s.execute(
+            select(M.Typology).where(M.Typology.typology_id == typology_id)
+        )).scalar_one_or_none()
+        if not t:
+            raise HTTPException(404, f"Typology {typology_id} not found")
+        return _typology_full(t)
+
+
+# ---------------------------------------------------------------------
+# Phase 5 — Typology write endpoints (harvest / approve / reject / promote)
+# ---------------------------------------------------------------------
+
+from fastapi import Body  # noqa: E402
+
+# Lazy imports so the harvesting package isn't pulled in at module load.
+def _harvest_mod():
+    from harvesting import harvest as h  # type: ignore
+    return h
+
+def _review_mod():
+    from harvesting import review as r   # type: ignore
+    return r
+
+def _promote_mod():
+    from harvesting import promote as p  # type: ignore
+    return p
+
+
+@router.post("/api/typologies/harvest")
+async def run_harvest(payload: dict = Body(default={})):
+    """Run the harvester pipeline foreground. Default extractor is
+    `fixture` (no AWS required); pass {"extractor": "bedrock"} to use
+    the real Bedrock-backed extractor."""
+    extractor = (payload or {}).get("extractor") or "fixture"
+    try:
+        summary = await _harvest_mod().harvest(extractor_name=extractor)
+    except SystemExit as e:
+        raise HTTPException(400, str(e) or "harvest failed")
+    except Exception as e:
+        raise HTTPException(500, f"harvest error: {e}")
+    return summary
+
+
+@router.post("/api/typologies/candidates/{candidate_id}/approve")
+async def approve_candidate(candidate_id: str, payload: dict = Body(...)):
+    name = (payload or {}).get("name")
+    role = (payload or {}).get("role")
+    notes = (payload or {}).get("notes")
+    if not name or not role:
+        raise HTTPException(400, "name and role are required")
+    review = _review_mod()
+    try:
+        result = await review.record_review(candidate_id, "approve", name, role, notes)
+    except review.ReviewError as e:
+        raise HTTPException(400, detail={"message": e.message, "issues": e.issues})
+    return result
+
+
+@router.post("/api/typologies/candidates/{candidate_id}/reject")
+async def reject_candidate(candidate_id: str, payload: dict = Body(...)):
+    name = (payload or {}).get("name")
+    role = (payload or {}).get("role") or "reviewer"
+    notes = (payload or {}).get("notes")
+    if not name:
+        raise HTTPException(400, "name is required")
+    if not notes:
+        raise HTTPException(400, "notes are required when rejecting")
+    review = _review_mod()
+    try:
+        result = await review.record_review(candidate_id, "reject", name, role, notes)
+    except review.ReviewError as e:
+        raise HTTPException(400, detail={"message": e.message, "issues": e.issues})
+    return result
+
+
+@router.post("/api/typologies/promote")
+async def promote_approved():
+    """Promote every approved-and-not-yet-promoted candidate."""
+    try:
+        summary = await _promote_mod().promote()
+    except Exception as e:
+        raise HTTPException(500, f"promote error: {e}")
+    return summary
 
 
 # ---------------------------------------------------------------------
